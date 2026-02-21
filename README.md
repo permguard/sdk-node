@@ -123,23 +123,23 @@ if (decision) {
 
 ## Version Compatibility
 
-Our SDK follows a versioning scheme aligned with the AuthZServer versions to ensure seamless integration. The versioning format is as follows:
+Our SDK follows a versioning scheme aligned with the Permguard Server versions to ensure seamless integration. The versioning format is as follows:
 
 **SDK Versioning Format:** `x.y.z`
 
-- **x.y**: Indicates the compatible AuthZServer version.
+- **x.y**: Indicates the compatible Permguard Server version.
 - **z**: Represents the SDK's patch or minor updates specific to that server version.
 
 **Compatibility Examples:**
 
-- `SDK Version 1.3.0` is compatible with `AuthZServer 1.3`.
-- `SDK Version 1.3.1` includes minor improvements or bug fixes for `AuthZServer 1.3`.
+- `SDK Version 1.3.0` is compatible with `Permguard Server 1.3`.
+- `SDK Version 1.3.1` includes minor improvements or bug fixes for `Permguard Server 1.3`.
 
 **Incompatibility Example:**
 
-- `SDK Version 1.3.0` **may not be guaranteed** to be compatible with `AuthZServer 1.4` due to potential changes introduced in server version `1.4`.
+- `SDK Version 1.3.0` **may not be guaranteed** to be compatible with `Permguard Server 1.4` due to potential changes introduced in server version `1.4`.
 
-**Important:** Ensure that the major and minor versions (`x.y`) of the SDK match those of your AuthZServer to maintain compatibility.
+**Important:** Ensure that the major and minor versions (`x.y`) of the SDK match those of your Permguard Server to maintain compatibility.
 
 ---
 
