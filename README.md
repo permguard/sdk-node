@@ -10,7 +10,6 @@
 
 [Watch the video on YouTube](https://youtu.be/cH_boKCpLQ8?si=i1fWFHT5kxQQJoYN)
 
-
 The Permguard Node.js SDK provides a simple and flexible client to perform authorization checks against a Permguard Policy Decision Point (PDP) service using gRPC.
 Please refer to the [Permguard Documentation](https://www.permguard.com/) for more information.
 
