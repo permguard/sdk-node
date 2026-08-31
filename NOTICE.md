@@ -1,9 +1,21 @@
 # NOTICE
 
-The trademark "Permguard" and its associated logo(s), as contained in this repository, are the exclusive intellectual property of Nitro Agility Srl.
+"Permguard", the Permguard name, and the associated Permguard logos and branding are trademarks of Nitro Agility S.r.l.
 
-All rights reserved. Unauthorized use, reproduction, or distribution of the "Permguard" trademark and its associated logo(s) is strictly prohibited.
+The Apache License 2.0, under which Permguard source code is distributed, does not grant rights to use these trademarks.
 
-For inquiries regarding the use of the "Permguard" trademark and its associated logo(s), please contact Nitro Agility S.r.l. at <opensource@nitroagility.com>.
+Permitted references, forks and modified distributions, and the limits on branding are described in [TRADEMARKS.md](TRADEMARKS.md).
 
-Copyright © 2024 Nitro Agility S.r.l. All Rights Reserved.
+For trademark and branding inquiries, contact Nitro Agility S.r.l. at <opensource@permguard.com>.
+
+## Project Policies
+
+Permguard is maintained under additional project policies governing contributions, governance, security, community participation, and trademarks.
+
+These policies are published in the official Permguard repositories and, where applicable, in the Nitro Agility organization `.github` repository.
+
+Contributors and community participants are responsible for reviewing the policies applicable to their participation in the Project.
+
+Nothing in this NOTICE modifies, restricts, or adds conditions to the Apache License 2.0 applicable to Permguard source code.
+
+Copyright © 2022 Nitro Agility S.r.l.

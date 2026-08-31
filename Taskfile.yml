@@ -25,3 +25,13 @@ tasks:
   proto:
     cmds:
       - make protoc
+
+  notices:
+    desc: Regenerate THIRD_PARTY_NOTICES.md from the resolved dependencies.
+    cmds:
+      - ./scripts/third-party-notices.sh
+
+  check:notices:
+    desc: Check that THIRD_PARTY_NOTICES.md matches the resolved dependencies.
+    cmds:
+      - ./scripts/third-party-notices.sh --check
