@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright 2024 Nitro Agility S.r.l.
+# Copyright (c) 2022 Nitro Agility S.r.l.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -140,6 +140,11 @@ fi
 
 rendered="$(
     cat <<HEADER
+<!--
+Copyright (c) 2022 Nitro Agility S.r.l.
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Third-Party Notices
 
 The Permguard Node SDK is distributed under the Apache License, Version 2.0. It depends on the

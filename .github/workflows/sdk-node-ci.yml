@@ -1,4 +1,4 @@
-# Copyright 2024 Nitro Agility S.r.l.
+# Copyright (c) 2022 Nitro Agility S.r.l.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      id-token: write 
+      id-token: write
 
     steps:
     - name: Checkout Repository
@@ -46,7 +46,7 @@ jobs:
         registry-url: 'https://registry.npmjs.org/'
 
     - name: Install dependencies
-      run: npm i
+      run: npm ci
 
     - name: Extract Version from Tag
       run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
@@ -55,7 +55,9 @@ jobs:
       run: npm version --no-git-tag-version "${VERSION}"
 
     - name: Build package
-      run: npm run build --if-present
+      run: |
+        npm run typecheck
+        npm test
 
     - name: Publish package to npm
       run: npm publish --access public

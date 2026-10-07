@@ -1,0 +1,122 @@
+// Copyright (c) 2022 Nitro Agility S.r.l.
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package permguard.data.v1;
+
+import "google/protobuf/struct.proto";
+
+// The native, stateless decision service a PEP calls.
+service PolicyDecisionPoint {
+  rpc Evaluate(EvaluateRequest) returns (EvaluateResponse);
+  rpc EvaluateMany(EvaluateRequest) returns (EvaluateResponse);
+  rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse);
+}
+
+message Entity {
+  string type = 1;
+  string id = 2;
+  google.protobuf.Struct properties = 3;
+}
+
+message Action {
+  string name = 1;
+  google.protobuf.Struct properties = 2;
+}
+
+message PartitionInput {
+  string type = 1;
+  google.protobuf.Value data = 2;
+}
+
+// Presence is significant inside an evaluation: absent inherits the request
+// inputs, while a present empty map replaces them with no inputs.
+message PartitionInputs {
+  map<string, PartitionInput> inputs = 1;
+}
+
+message Evaluation {
+  reserved 5, 7;
+  reserved "entities";
+
+  Entity subject = 1;
+  Entity resource = 2;
+  Action action = 3;
+  google.protobuf.Struct context = 4;
+  string request_id = 6;
+  PartitionInputs partition_inputs = 8;
+}
+
+enum EvaluationsSemantic {
+  EVALUATIONS_SEMANTIC_UNSPECIFIED = 0;
+  EVALUATIONS_SEMANTIC_EXECUTE_ALL = 1;
+  EVALUATIONS_SEMANTIC_DENY_ON_FIRST_DENY = 2;
+  EVALUATIONS_SEMANTIC_PERMIT_ON_FIRST_PERMIT = 3;
+}
+
+message EvaluateRequest {
+  reserved 9;
+  reserved "entities";
+
+  string zone = 1;
+  string ledger = 2;
+  string profile = 3;
+  Entity subject = 4;
+  Entity resource = 5;
+  Action action = 6;
+  google.protobuf.Struct context = 7;
+  Entity principal = 8;
+  repeated Evaluation evaluations = 10;
+  EvaluationsSemantic evaluations_semantic = 11;
+  string request_id = 12;
+  map<string, PartitionInput> partition_inputs = 13;
+}
+
+message Reason {
+  string code = 1;
+  string message = 2;
+}
+
+message DecisionContext {
+  string id = 1;
+  Reason reason_admin = 2;
+  Reason reason_user = 3;
+  repeated string policies = 4;
+  repeated string absent_inputs = 5;
+}
+
+message Decision {
+  bool decision = 1;
+  string request_id = 2;
+  DecisionContext context = 3;
+}
+
+message EvaluateResponse {
+  bool decision = 1;
+  string request_id = 2;
+  DecisionContext context = 3;
+  repeated Decision evaluations = 4;
+}
+
+message GetConfigurationRequest {}
+
+message Endpoints {
+  string evaluation = 1;
+  string evaluations = 2;
+}
+
+message StoreScope {
+  string in = 1;
+  string zone = 2;
+  string ledger = 3;
+  string profile = 4;
+}
+
+message GetConfigurationResponse {
+  string interface = 1;
+  string pdp = 2;
+  Endpoints endpoints = 3;
+  repeated string capabilities = 4;
+  StoreScope store_scope = 5;
+}

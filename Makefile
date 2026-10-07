@@ -1,3 +1,6 @@
+# Copyright (c) 2022 Nitro Agility S.r.l.
+# SPDX-License-Identifier: Apache-2.0
+
 .DEFAULT_GOAL := build
 
 brew:
@@ -19,7 +22,7 @@ init-dependency:
 	npm install @grpc/grpc-js @protobuf-ts/grpc-transport @protobuf-ts/runtime-rpc lodash
 
 protoc:
-	npx protoc --ts_out src/internal/az/azreq/grpc/v1/generated --proto_path ./src src/proto/v1/pdp.proto
+	npm run generate-grpc
 
 check:
 	staticcheck  ./...

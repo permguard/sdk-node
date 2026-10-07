@@ -6,28 +6,36 @@
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "LICENSE",
+    "NOTICE.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "generate-grpc": "npx protoc --ts_out src/internal/az/azreq/grpc/v1/generated --proto_path ./src src/proto/v1/pdp.proto",
-    "build": "tsup"
+    "generate-grpc": "protoc --ts_out src/internal/grpc/v1/generated --proto_path ./src/proto src/proto/permguard/data/v1/pdp.proto && bash scripts/header-generated.sh src/internal/grpc/v1/generated/google/protobuf/struct.ts src/internal/grpc/v1/generated/permguard/data/v1/pdp.ts src/internal/grpc/v1/generated/permguard/data/v1/pdp.client.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --require ts-node/register --test tests/*.test.ts",
+    "prepack": "npm run build"
   },
   "keywords": [],
   "author": "NitroAgility",
   "license": "Apache-2.0",
   "devDependencies": {
     "@protobuf-ts/plugin": "2.9.4",
-    "@types/lodash": "4.17.16",
     "@types/node": "22.13.9",
     "ts-node": "10.9.2",
     "tsup": "8.4.0",
     "typescript": "5.8.2"
   },
   "dependencies": {
-    "@grpc/grpc-js": "1.12.6",
+    "@grpc/grpc-js": "1.14.5",
     "@protobuf-ts/grpc-transport": "2.9.4",
-    "@protobuf-ts/runtime-rpc": "2.9.4",
-    "lodash": "4.17.21"
+    "@protobuf-ts/runtime": "2.9.4",
+    "@protobuf-ts/runtime-rpc": "2.9.4"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "publishConfig": {
     "access": "public"

@@ -1,145 +1,147 @@
-# The official Node.js SDK for Permguard
+<!--
+Copyright (c) 2022 Nitro Agility S.r.l.
+SPDX-License-Identifier: Apache-2.0
+-->
 
-[![GitHub License](https://img.shields.io/github/license/permguard/sdk-node)](https://github.com/permguard/sdk-node?tab=Apache-2.0-1-ov-file#readme)
-[![X (formerly Twitter) Follow](https://img.shields.io/twitter/follow/permguard)](https://x.com/intent/follow?original_referer=https%3A%2F%2Fdeveloper.x.com%2F&ref_src=twsrc%5Etfw%7Ctwcamp%5Ebuttonembed%7Ctwterm%5Efollow%7Ctwgr%5ETwitterDev&screen_name=Permguard)
+# Permguard Node.js SDK
 
-[![Documentation](https://img.shields.io/website?label=Docs&url=https%3A%2F%2Fwww.permguard.com%2F)](https://www.permguard.com/)
-[![Build, test and publish the artifacts](https://github.com/permguard/sdk-node/actions/workflows/sdk-node-ci.yml/badge.svg)](https://github.com/permguard/sdk-node/actions/workflows/sdk-node-ci.yml)
+The official Node.js client for the stateless Permguard PDP interface
+`permguard.api.pdp.native.v1`.
 
-[![Watch the video on YouTube](https://raw.githubusercontent.com/permguard/permguard-assets/refs/heads/main/video/permguard-thumbnail-preview.png)](https://youtu.be/cH_boKCpLQ8?si=i1fWFHT5kxQQJoYN)
+One public API supports both server bindings:
 
-[Watch the video on YouTube](https://youtu.be/cH_boKCpLQ8?si=i1fWFHT5kxQQJoYN)
+- `http://` and `https://` use JSON;
+- `grpc://` and `grpcs://` use `permguard.data.v1.PolicyDecisionPoint`.
 
-The Permguard Node.js SDK provides a simple and flexible client to perform authorization checks against a Permguard Policy Decision Point (PDP) service using gRPC.
-Please refer to the [Permguard Documentation](https://www.permguard.com/) for more information.
+## Requirements
 
----
-
-## Prerequisites
-
-- **Node.js 20.x or later**
-- **TypeScript 5.8 or later** (if using TypeScript)
-
----
+Node.js 20 or newer.
 
 ## Installation
 
-Run the following command to install the SDK:
-
 ```bash
-npm install permguard
+npm install @permguard/permguard
 ```
 
-or with Yarn:
-
-```bash
-yarn add permguard
-```
-
----
-
-## Usage Example
-
-Below is a sample TypeScript code demonstrating how to create a Permguard client, build an authorization request using a builder pattern, and process the authorization response:
+## Evaluate one request
 
 ```typescript
-import {
-  PrincipalBuilder,
-  AZAtomicRequestBuilder,
-  withEndpoint,
-  AZClient,
-} from "permguard";
+import { Client } from "@permguard/permguard";
 
-// Create a new Permguard client
-const azClient = new AZClient(withEndpoint("localhost", 9094));
+const client = new Client("grpc://localhost:7443");
+// Use http://localhost:7443 for the HTTP/JSON binding.
 
-// Create the Principal
-const principal = new PrincipalBuilder("amy.smith@acmecorp.com").build();
-
-// Create the entities
-const entities = [
-  {
-    uid: {
-      type: "PharmaAuthZFlow::Platform::BranchInfo",
-      id: "subscription",
-    },
-    attrs: {
-      active: true,
-    },
-    parents: [],
-  },
-];
-
-// Create a new authorization request
-const req = new AZAtomicRequestBuilder(
-  583438038653,
-  "46706cb00ea248d6841cfe2c9f02205b",
-  "platform-creator",
-  "PharmaAuthZFlow::Platform::Subscription",
-  "PharmaAuthZFlow::Platform::Action::create"
-)
-  .withRequestID("1234")
-  .withPrincipal(principal)
-  .withEntitiesItems("cedar", entities)
-  .withSubjectWorkloadType()
-  .withSubjectSource("keycloack")
-  .withSubjectProperty("isSuperUser", true)
-  .withResourceID("e3a786fd07e24bfa95ba4341d3695ae8")
-  .withResourceProperty("isEnabled", true)
-  .withActionProperty("isEnabled", true)
-  .withContextProperty("time", "2025-01-23T16:17:46+00:00")
-  .withContextProperty("isSubscriptionActive", true)
-  .build();
-
-// Check the authorization
-const { decision, response } = await azClient.check(req);
-if (decision) {
-  console.log("✅ Authorization Permitted");
-} else {
-  console.log("❌ Authorization Denied");
-  if (response) {
-    if (response.Context?.ReasonAdmin) {
-      console.log(`-> Reason Admin: ${response.Context.ReasonAdmin.Message}`);
-    }
-    if (response.Context?.ReasonUser) {
-      console.log(`-> Reason User: ${response.Context.ReasonUser.Message}`);
-    }
-    for (const evaluation of response.Evaluations || []) {
-      if (evaluation.Context?.ReasonAdmin) {
-        console.log(
-          `-> Reason Admin: ${evaluation.Context.ReasonAdmin.Message}`
-        );
-      }
-      if (evaluation.Context?.ReasonUser) {
-        console.log(`-> Reason User: ${evaluation.Context.ReasonUser.Message}`);
-      }
-    }
-  }
+try {
+  const response = await client.evaluate({
+    zone: "acme",
+    ledger: "documents",
+    subject: { type: "user", id: "amy@example.com" },
+    resource: { type: "document", id: "quarterly-report" },
+    action: { name: "read" },
+  });
+  console.log("permitted:", response.decision);
+} finally {
+  client.close();
 }
 ```
 
----
+A deny is a successful response with `decision === false`. Validation,
+authorization, availability, and server failures reject with `Refusal`, which
+preserves the stable error class and code.
 
-## Version Compatibility
+## Partition inputs
 
-Our SDK follows a versioning scheme aligned with the Permguard Server versions to ensure seamless integration. The versioning format is as follows:
+Runtime data is addressed to the partition name declared by the ledger profile:
 
-**SDK Versioning Format:** `x.y.z`
+```typescript
+const response = await client.evaluate({
+  zone: "acme",
+  ledger: "documents",
+  partitionInputs: {
+    authorization: {
+      type: "permguard.cedar.entities.v1",
+      data: [
+        {
+          uid: { type: "Team", id: "engineering" },
+          attrs: { active: true },
+          parents: [],
+        },
+      ],
+    },
+  },
+});
+```
 
-- **x.y**: Indicates the compatible Permguard Server version.
-- **z**: Represents the SDK's patch or minor updates specific to that server version.
+The map key is the partition name from the selected profile. `type` asserts the
+partition input contract; it does not select a policy runtime.
 
-**Compatibility Examples:**
+## Evaluate a batch
 
-- `SDK Version 1.3.0` is compatible with `Permguard Server 1.3`.
-- `SDK Version 1.3.1` includes minor improvements or bug fixes for `Permguard Server 1.3`.
+```typescript
+import { EvaluationsSemantic } from "@permguard/permguard";
 
-**Incompatibility Example:**
+const response = await client.evaluateMany({
+  zone: "acme",
+  ledger: "documents",
+  subject: { type: "user", id: "amy@example.com" },
+  evaluations: [
+    {
+      resource: { type: "document", id: "one" },
+      action: { name: "read" },
+      requestId: "one",
+    },
+    {
+      resource: { type: "document", id: "two" },
+      action: { name: "read" },
+      requestId: "two",
+    },
+  ],
+  options: { evaluationsSemantic: EvaluationsSemantic.ExecuteAll },
+});
+```
 
-- `SDK Version 1.3.0` **may not be guaranteed** to be compatible with `Permguard Server 1.4` due to potential changes introduced in server version `1.4`.
+An evaluation with no `partitionInputs` inherits the request defaults. An
+explicit empty object replaces the defaults with no inputs; this distinction is
+preserved over both HTTP and gRPC.
 
-**Important:** Ensure that the major and minor versions (`x.y`) of the SDK match those of your Permguard Server to maintain compatibility.
+## Discovery, timeouts, and metadata
 
----
+```typescript
+const client = new Client("https://pdp.example.com", {
+  timeoutMs: 5_000,
+  headers: { authorization: `Bearer ${token}` },
+});
 
-Created by [Nitro Agility](https://www.nitroagility.com/).
+const configuration = await client.getConfiguration();
+const response = await client.evaluate(request, {
+  timeoutMs: 1_000,
+  signal: abortController.signal,
+});
+```
+
+Static headers are carried as HTTP headers or gRPC metadata. TLS options for
+HTTPS and custom `ChannelCredentials` for gRPCS can be supplied through the
+constructor.
+
+## Compatibility
+
+This major version implements `permguard.api.pdp.native.v1`. Compatibility is
+tied to that versioned interface rather than to a server minor version.
+
+## Development
+
+```bash
+npm ci
+npm run generate-grpc
+npm run typecheck
+npm test
+npm pack --dry-run
+```
+
+The protobuf source mirrors the native stateless contract in the Permguard
+server repository. Regenerate bindings whenever it changes.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE), [NOTICE.md](NOTICE.md), and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

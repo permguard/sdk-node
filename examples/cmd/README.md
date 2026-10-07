@@ -1,46 +1,24 @@
-# Permguard Node.js SDK Example
+<!--
+Copyright (c) 2022 Nitro Agility S.r.l.
+SPDX-License-Identifier: Apache-2.0
+-->
 
-A comprehensive example demonstrating how to use the Permguard Node.js SDK for authorization and permission checks in your applications.
+# Permguard Node.js SDK example
 
-## Running the Example
+Build the SDK and install the example:
 
-1. **Build the library**
+```bash
+cd ../..
+npm ci
+npm run build
+cd examples/cmd
+npm install
+```
 
-   ```bash
-   npm install
-   npm run build
-   npm link
-   ```
+Start a Permguard PDP, then run:
 
-2. **Install dependencies in the example app folder**
+```bash
+PERMGUARD_PDP_URL=grpc://localhost:7443 npm start
+```
 
-   ```bash
-   cd ./examples/cmd
-   npm install
-   ```
-
-3. **Link the Permguard library to the example**
-
-   ```bash
-   npm link permguard
-   ```
-
-4. **Start Permguard PDP Service**
-
-   Ensure your Permguard PDP service is running on localhost:9094.
-
-   If you need to configure a different address, you can update it in the example configuration.
-
-5. **Run the example**
-
-   ```bash
-   npm run start
-   ```
-
-## Features Demonstrated
-
-This example demonstrates several key features of the Permguard Node.js SDK:
-
-- **JSON Request Check**
-- **Atomic Evaluation Check**
-- **Multiple Evaluation Check**
+Use an `http://` URL to exercise the JSON binding with the same request.
