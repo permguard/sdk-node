@@ -58,6 +58,13 @@ test("HTTP implements the native v1 contract and structured refusals", async () 
         });
         return;
       }
+      if (seenBody.ledger === "conflict") {
+        sendJson(response, 409, {
+          code: "ledger_conflict",
+          message: "ledger changed",
+        });
+        return;
+      }
       sendJson(response, 200, {
         decision: true,
         request_id: seenBody.request_id,
@@ -99,6 +106,15 @@ test("HTTP implements the native v1 contract and structured refusals", async () 
         return true;
       },
     );
+    await assert.rejects(
+      client.evaluate({ zone: "acme", ledger: "conflict" }),
+      (error: unknown) => {
+        assert.ok(error instanceof Refusal);
+        assert.equal(error.errorClass, "conflict");
+        assert.equal(error.httpStatus, 409);
+        return true;
+      },
+    );
   } finally {
     client.close();
     await closeHttp(server);
@@ -124,6 +140,16 @@ test("gRPC uses permguard.data.v1 with batch, discovery, and metadata errors", a
           code: status.INVALID_ARGUMENT,
           details: "bad ledger",
           metadata,
+        });
+        return;
+      }
+      if (call.request.ledger === "conflict") {
+        callback({
+          name: "Error",
+          message: "ledger changed",
+          code: status.FAILED_PRECONDITION,
+          details: "ledger changed",
+          metadata: new Metadata(),
         });
         return;
       }
@@ -204,6 +230,15 @@ test("gRPC uses permguard.data.v1 with batch, discovery, and metadata errors", a
         return true;
       },
     );
+    await assert.rejects(
+      client.evaluate({ zone: "acme", ledger: "conflict" }),
+      (error: unknown) => {
+        assert.ok(error instanceof Refusal);
+        assert.equal(error.errorClass, "conflict");
+        assert.equal(error.grpcCode, "FAILED_PRECONDITION");
+        return true;
+      },
+    );
   } finally {
     client.close();
     await closeGrpc(server);
@@ -233,6 +268,13 @@ test("wire mapping preserves presence and rejects lossy JSON numbers", () => {
         context: { unsafe: Number.MAX_SAFE_INTEGER + 1 },
       }),
     /not exactly representable/,
+  );
+});
+
+test("endpoints reject embedded credentials", () => {
+  assert.throws(
+    () => new Client("http://user:secret@pdp.example"),
+    /must not contain credentials/,
   );
 });
 

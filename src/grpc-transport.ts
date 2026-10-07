@@ -127,6 +127,13 @@ function grpcClass(code: string): string {
   if (code === "INVALID_ARGUMENT" || code === "OUT_OF_RANGE") {
     return "validation";
   }
+  if (
+    code === "FAILED_PRECONDITION" ||
+    code === "ALREADY_EXISTS" ||
+    code === "ABORTED"
+  ) {
+    return "conflict";
+  }
   if (code === "UNAUTHENTICATED" || code === "PERMISSION_DENIED") {
     return "authorization";
   }
