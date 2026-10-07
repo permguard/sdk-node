@@ -10,9 +10,10 @@ async function main(): Promise<void> {
   try {
     const response = await client.evaluate({
       zone: "acme",
-      ledger: "documents",
-      subject: { type: "user", id: "amy@example.com" },
-      resource: { type: "document", id: "quarterly-report" },
+      ledger: "main-ledger",
+      profile: "gateway",
+      subject: { type: "User", id: "alice" },
+      resource: { type: "Document", id: "budget-2026" },
       action: { name: "read" },
       requestId: "example-1",
     });
