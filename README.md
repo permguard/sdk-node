@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 [![licence](https://img.shields.io/badge/licence-Apache--2.0-blue)](https://www.apache.org/licenses/LICENSE-2.0)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/permguard/sdk-node/main/assets/readme/hero.png" alt="Permguard SDK for Node.js. Ask Permguard, from Node.js: the official Node.js client of the Permguard Policy Decision Point, Node.js 20 or newer, over HTTP or gRPC, Apache-2.0. Beside it, a TypeScript window creates a client for grpc://localhost:7443 and evaluates whether the User alice may read in the ledger main-ledger of the zone acme; the answer is permit." width="820">
+  <img src="https://raw.githubusercontent.com/permguard/sdk-node/main/assets/readme/hero.png?v=2" alt="Permguard SDK for Node.js. Ask Permguard, from Node.js: the official Node.js client of the Permguard Policy Decision Point, Node.js 20 or newer, over HTTP or gRPC, Apache-2.0. Beside it, a TypeScript window creates a client for grpc://localhost:7443 and evaluates whether the User alice may read in the ledger main-ledger of the zone acme; the answer is permit." width="820">
 </p>
 
 <p align="center">
@@ -27,7 +27,7 @@ Before your code acts, it asks Permguard whether a subject may perform an action
 This SDK is how JavaScript and TypeScript code on Node.js asks: one client for the native, stateless PDP interface `permguard.api.pdp.native.v1`, over HTTP/JSON or gRPC, with the same request and the same answer on both.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/permguard/sdk-node/main/assets/readme/flow.png" alt="How a decision is asked. Your Node.js code asks before it acts: who, User alice; does what, read; on what, Document budget-2026. The Permguard Node.js SDK, one client with evaluate and evaluateMany, sends it as JSON to an http or https endpoint or over gRPC to a grpc or grpcs endpoint. The Permguard data plane, the PDP of the native v1 interface, decides with the policies of the ledger main-ledger in the zone acme, under the profile gateway, on Cedar, Rego or Dogwood. The answer is a permit, a deny, which is a normal answer, or a Refusal with its class and code." width="820">
+  <img src="https://raw.githubusercontent.com/permguard/sdk-node/main/assets/readme/flow.png?v=2" alt="How a decision is asked. Your Node.js code asks before it acts: who, User alice; does what, read; on what, Document budget-2026. The Permguard Node.js SDK, one client with evaluate and evaluateMany, sends it as JSON to an http or https endpoint or over gRPC to a grpc or grpcs endpoint. The Permguard data plane, the PDP of the native v1 interface, decides with the policies of the ledger main-ledger in the zone acme, under the profile gateway, on Cedar, Rego or Dogwood. The answer is a permit, a deny, which is a normal answer, or a Refusal with its class and code." width="820">
 </p>
 
 <p align="center"><sub>Your code asks, the SDK carries the question, the data plane decides with the ledger's policies.</sub></p>
