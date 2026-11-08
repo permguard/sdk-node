@@ -21,6 +21,10 @@
   "keywords": [],
   "author": "NitroAgility",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/permguard/sdk-node.git"
+  },
   "devDependencies": {
     "@protobuf-ts/plugin": "2.9.4",
     "@types/node": "22.13.9",

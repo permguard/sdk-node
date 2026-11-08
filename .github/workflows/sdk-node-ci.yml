@@ -24,15 +24,13 @@ on:
 permissions:
   contents: read
 
-env:
-  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
 jobs:
   deploy:
 
     runs-on: ubuntu-latest
 
     permissions:
+      contents: read
       id-token: write
 
     steps:
@@ -44,6 +42,10 @@ jobs:
       with:
         node-version: '22'
         registry-url: 'https://registry.npmjs.org/'
+
+    # Trusted Publishing (OIDC) needs npm 11.5.1 or later; Node 22 ships npm 10.
+    - name: Upgrade npm
+      run: npm install -g npm@11
 
     - name: Install dependencies
       run: npm ci
@@ -61,5 +63,3 @@ jobs:
 
     - name: Publish package to npm
       run: npm publish --access public
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
