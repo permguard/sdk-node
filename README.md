@@ -184,6 +184,21 @@ const response = await client.evaluate(request, {
 Every call also takes its own `timeoutMs` and an `AbortSignal`.
 `getConfiguration` reads the data plane's discovery document.
 
+## Credentials
+
+In production a data plane admits a call only with an access token of its cluster's Authority Plane, issued to a service account whose scopes include `decision.evaluate` on that data plane.
+Obtain one with the account's access key and secret key, then send it on every call as `authorization: Bearer <token>`, with the header option above.
+
+```sh
+curl -s -u "$PERMGUARD_ACCESS_KEY:$PERMGUARD_SECRET_KEY" \
+  -d grant_type=client_credentials \
+  https://permguard.example:8443/authority/v1/token | jq -r .access_token
+```
+
+A token lasts an hour unless asked shorter: obtain another before it expires.
+The development configurations Permguard ships grant `decision.evaluate` to everybody, so the quick start needs no token.
+See the [Authority Plane](https://docs.permguard.com/how-it-works/authority-plane) for service accounts, their scopes and keys.
+
 ## Compatibility
 
 This major version implements `permguard.api.pdp.native.v1`.
