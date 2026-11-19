@@ -55,7 +55,6 @@ try {
   const response = await client.evaluate({
     zone: "acme",
     ledger: "main-ledger",
-    profile: "gateway",
     subject: { type: "User", id: "alice" },
     resource: { type: "Document", id: "budget-2026" },
     action: { name: "read" },
@@ -76,6 +75,9 @@ try {
 The package ships both an ES module and CommonJS.
 The snippets here use top-level `await`, which needs an ES module; in CommonJS, put them in an `async` function, as [examples/cmd](examples/cmd/src/index.ts) does.
 Set `PERMGUARD_PDP_URL` to point that example at another data plane.
+
+A request that names no `profile` is decided by the ledger's `default` profile: the manifest `permguard init` writes declares it, with one partition, `cedar`.
+A ledger whose manifest declares other profiles is asked with the profile's name, and its partition inputs are keyed by that profile's partitions.
 
 ### The request
 
@@ -104,7 +106,7 @@ const response = await client.evaluate({
   zone: "acme",
   ledger: "main-ledger",
   partitionInputs: {
-    authorization: {
+    cedar: {
       type: "permguard.cedar.entities.v1",
       data: [
         {

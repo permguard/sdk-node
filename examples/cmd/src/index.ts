@@ -11,7 +11,6 @@ async function main(): Promise<void> {
     const response = await client.evaluate({
       zone: "acme",
       ledger: "main-ledger",
-      profile: "gateway",
       subject: { type: "User", id: "alice" },
       resource: { type: "Document", id: "budget-2026" },
       action: { name: "read" },
