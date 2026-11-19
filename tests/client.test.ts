@@ -260,15 +260,32 @@ test("wire mapping preserves presence and rejects lossy JSON numbers", () => {
   assert.ok(proto.evaluations[0]?.context);
   assert.ok(proto.evaluations[0]?.partitionInputs);
 
-  assert.throws(
-    () =>
-      requestToProto({
-        zone: "acme",
-        ledger: "documents",
-        context: { unsafe: Number.MAX_SAFE_INTEGER + 1 },
-      }),
-    /not exactly representable/,
-  );
+  // BUG-0306, BUG-0307: the server's rule, the same on both transports: 2^53 crosses, an
+  // integer past it is `value_unrepresentable`, what is not JSON is `payload_malformed`.
+  const ask = (context: Record<string, unknown>): EvaluateRequest => ({
+    zone: "acme",
+    ledger: "documents",
+    context: context as EvaluateRequest["context"],
+  });
+  for (const encode of [requestToJson, requestToProto]) {
+    encode(ask({ n: 2 ** 53, m: -(2 ** 53), big: 1e300, f: 0.5 }));
+    for (const [context, code] of [
+      [{ n: 2 ** 53 + 2 }, "value_unrepresentable"],
+      [{ n: Number.NaN }, "payload_malformed"],
+      [{ n: Number.POSITIVE_INFINITY }, "payload_malformed"],
+      [{ n: undefined }, "payload_malformed"],
+      [{ n: () => 1 }, "payload_malformed"],
+      [{ n: [1, undefined] }, "payload_malformed"],
+      [{ n: 10n }, "payload_malformed"],
+    ] as const) {
+      assert.throws(() => encode(ask(context)), (error: unknown) => {
+        assert.ok(error instanceof Refusal, String(error));
+        assert.equal(error.errorClass, "validation");
+        assert.equal(error.code, code);
+        return true;
+      });
+    }
+  }
 });
 
 test("endpoints reject embedded credentials", () => {

@@ -296,40 +296,72 @@ function validateRequest(request: EvaluateRequest): void {
   if (!request || typeof request !== "object") {
     throw new TypeError("Permguard evaluation request is required");
   }
-  validateJson(request.context);
-  validateJson(request.subject?.properties);
-  validateJson(request.resource?.properties);
-  validateJson(request.action?.properties);
-  validateJson(request.principal?.properties);
+  // An absent member is left out; a value inside one that is not JSON is refused.
+  const present = (value: unknown): void => {
+    if (value !== undefined) validateJson(value);
+  };
+  present(request.context);
+  present(request.subject?.properties);
+  present(request.resource?.properties);
+  present(request.action?.properties);
+  present(request.principal?.properties);
   for (const input of Object.values(request.partitionInputs ?? {})) {
-    validateJson(input.data);
+    present(input.data);
   }
   for (const evaluation of request.evaluations ?? []) {
-    validateJson(evaluation.context);
-    validateJson(evaluation.subject?.properties);
-    validateJson(evaluation.resource?.properties);
-    validateJson(evaluation.action?.properties);
+    present(evaluation.context);
+    present(evaluation.subject?.properties);
+    present(evaluation.resource?.properties);
+    present(evaluation.action?.properties);
     for (const input of Object.values(evaluation.partitionInputs ?? {})) {
-      validateJson(input.data);
+      present(input.data);
     }
   }
 }
 
-function validateJson(value: JsonValue | undefined): void {
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      throw new TypeError("JSON numbers must be finite");
-    }
-    if (Number.isInteger(value) && !Number.isSafeInteger(value)) {
-      throw new TypeError(
-        `integer ${value} is not exactly representable by protobuf Value`,
-      );
-    }
-  } else if (Array.isArray(value)) {
-    value.forEach(validateJson);
-  } else if (value !== null && typeof value === "object") {
-    Object.values(value).forEach(validateJson);
+/// The largest integer both transports carry exactly, the server's bound: 2^53 (BUG-0306).
+const EXACT = 2 ** 53;
+
+/// A value the PDP takes, checked the same before either transport sends it, with the codes the
+/// PDP answers over HTTP (BUG-0306, BUG-0307): an integer past ±2^53 is `value_unrepresentable`;
+/// what is not JSON at all (NaN, Infinity, `undefined`, a function, a symbol, a BigInt) is
+/// `payload_malformed`, never dropped or rewritten.
+function validateJson(value: unknown): void {
+  switch (typeof value) {
+    case "number":
+      if (!Number.isFinite(value)) {
+        throw malformed(`${value} is not a JSON number`);
+      }
+      // An integer written as one: what JSON.stringify writes without an exponent, which the PDP
+      // reads as an integer and bounds at 2^53.
+      if (Number.isInteger(value) && Math.abs(value) > EXACT && !/e/i.test(String(value))) {
+        throw new Refusal(
+          "validation",
+          "value_unrepresentable",
+          `${value} is beyond the largest integer both transports carry exactly (2^53): send it as a string`,
+        );
+      }
+      return;
+    case "string":
+    case "boolean":
+      return;
+    case "undefined":
+    case "function":
+    case "symbol":
+    case "bigint":
+      throw malformed(`a ${typeof value} is not a JSON value`);
+    default:
+      if (value === null) return;
+      if (Array.isArray(value)) {
+        for (let at = 0; at < value.length; at += 1) validateJson(value[at]);
+        return;
+      }
+      Object.values(value as Record<string, unknown>).forEach(validateJson);
   }
+}
+
+function malformed(message: string): Refusal {
+  return new Refusal("validation", "payload_malformed", message);
 }
 
 function put(target: WireObject, key: string, value: unknown): void {
