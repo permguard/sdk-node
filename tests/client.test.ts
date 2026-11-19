@@ -278,6 +278,165 @@ test("endpoints reject embedded credentials", () => {
   );
 });
 
+const sample: EvaluateRequest = {
+  zone: "acme",
+  ledger: "main",
+  subject: { type: "user", id: "amy" },
+  resource: { type: "document", id: "report" },
+  action: { name: "read" },
+};
+
+/// A gRPC PDP that counts its calls and answers after `delayMs`.
+async function countingPdp(
+  delayMs: number,
+): Promise<{ port: number; calls: () => number; server: GrpcServer }> {
+  const server = new GrpcServer();
+  let calls = 0;
+  const answer = (
+    call: ServerUnaryCall<pb.EvaluateRequest, pb.EvaluateResponse>,
+    callback: sendUnaryData<pb.EvaluateResponse>,
+  ): void => {
+    calls += 1;
+    setTimeout(
+      () =>
+        callback(
+          null,
+          pb.EvaluateResponse.create({
+            decision: true,
+            requestId: call.request.requestId,
+          }),
+        ),
+      delayMs,
+    );
+  };
+  server.addService(pdpService, {
+    evaluate: answer,
+    evaluateMany: answer,
+    getConfiguration: (
+      _call: ServerUnaryCall<pb.GetConfigurationRequest, pb.GetConfigurationResponse>,
+      callback: sendUnaryData<pb.GetConfigurationResponse>,
+    ) => callback(null, pb.GetConfigurationResponse.create({})),
+  });
+  const port = await listenGrpc(server);
+  return { port, calls: () => calls, server };
+}
+
+test("gRPC refuses an aborted signal before sending, and an abort in flight (BUG-0304)", async () => {
+  const pdp = await countingPdp(300);
+  const client = new Client(`grpc://127.0.0.1:${pdp.port}`);
+  try {
+    const aborted = new AbortController();
+    aborted.abort();
+    await assert.rejects(client.evaluate(sample, { signal: aborted.signal }), {
+      name: "AbortError",
+    });
+    assert.equal(pdp.calls(), 0, "nothing reached the server");
+
+    const inFlight = new AbortController();
+    const pending = client.evaluate(sample, { signal: inFlight.signal });
+    setTimeout(() => inFlight.abort(), 50);
+    await assert.rejects(pending, { name: "AbortError" });
+  } finally {
+    client.close();
+    await closeGrpc(pdp.server);
+  }
+});
+
+test("an unknown evaluations semantic is refused, never decided under execute_all (BUG-0305)", async () => {
+  const pdp = await countingPdp(0);
+  const client = new Client(`grpc://127.0.0.1:${pdp.port}`);
+  try {
+    const bogus = {
+      ...sample,
+      options: { evaluationsSemantic: "first_wins" as never },
+    };
+    await assert.rejects(client.evaluateMany(bogus), (error: unknown) => {
+      assert.ok(error instanceof Refusal);
+      assert.equal(error.errorClass, "validation");
+      assert.equal(error.code, "payload_malformed");
+      return true;
+    });
+    assert.equal(pdp.calls(), 0, "nothing sent");
+  } finally {
+    client.close();
+    await closeGrpc(pdp.server);
+  }
+});
+
+test("an HTTP timeout bounds the whole call (BUG-0309)", async () => {
+  for (const mode of ["trickle", "headers", "silent"]) {
+    const timers: NodeJS.Timeout[] = [];
+    const server = http.createServer((_request, response) => {
+      if (mode === "silent") return;
+      response.writeHead(200, { "content-type": "application/json" });
+      if (mode === "trickle") {
+        timers.push(setInterval(() => response.write(" "), 100));
+      }
+    });
+    const port = await listenHttp(server);
+    const client = new Client(`http://127.0.0.1:${port}`, { timeoutMs: 500 });
+    const started = Date.now();
+    try {
+      await assert.rejects(client.evaluate(sample), /timed out after 500ms/);
+      const elapsed = Date.now() - started;
+      assert.ok(elapsed < 2000, `${mode}: rejected after ${elapsed}ms`);
+    } finally {
+      timers.forEach(clearInterval);
+      client.close();
+      server.closeAllConnections();
+      await closeHttp(server);
+    }
+  }
+});
+
+test("an HTTP error whose body is not JSON is a refusal with its status (BUG-0282)", async () => {
+  const server = http.createServer((request, response) => {
+    const ledger = new URL(request.url ?? "/", "http://x").searchParams.get("l");
+    request.resume();
+    request.on("end", () => {
+      const seen = request.headers["x-case"];
+      if (seen === "413") {
+        response.writeHead(413, { "content-type": "text/plain" });
+        response.end("length limit exceeded");
+      } else if (seen === "401") {
+        response.writeHead(401);
+        response.end();
+      } else {
+        response.writeHead(200, { "content-type": "text/plain" });
+        response.end(ledger ?? "not json");
+      }
+    });
+  });
+  const port = await listenHttp(server);
+  const client = (value: string) =>
+    new Client(`http://127.0.0.1:${port}`, { headers: { "x-case": value } });
+  try {
+    const big = client("413");
+    await assert.rejects(big.evaluate(sample), (error: unknown) => {
+      assert.ok(error instanceof Refusal);
+      assert.equal(error.httpStatus, 413);
+      assert.equal(error.code, "http_status");
+      assert.equal(error.errorClass, "internal");
+      assert.match(error.message, /length limit exceeded/);
+      return true;
+    });
+    big.close();
+    const empty = client("401");
+    await assert.rejects(empty.evaluate(sample), (error: unknown) => {
+      assert.ok(error instanceof Refusal);
+      assert.equal(error.httpStatus, 401);
+      assert.equal(error.errorClass, "authorization");
+      return true;
+    });
+    empty.close();
+    const ok = client("200");
+    await assert.rejects(ok.evaluate(sample), /decode Permguard HTTP response/);
+    ok.close();
+  } finally {
+    await closeHttp(server);
+  }
+});
+
 const pdpService: ServiceDefinition = {
   evaluate: unaryDefinition(
     "/permguard.data.v1.PolicyDecisionPoint/Evaluate",

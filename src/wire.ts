@@ -1,6 +1,7 @@
 // Copyright (c) 2022 Nitro Agility S.r.l.
 // SPDX-License-Identifier: Apache-2.0
 
+import { Refusal } from "./errors";
 import { Struct, Value } from "./internal/grpc/v1/generated/google/protobuf/struct";
 import * as pb from "./internal/grpc/v1/generated/permguard/data/v1/pdp";
 import {
@@ -227,6 +228,14 @@ function semanticToProto(
       return pb.EvaluationsSemantic.DENY_ON_FIRST_DENY;
     case EvaluationsSemantic.PermitOnFirstPermit:
       return pb.EvaluationsSemantic.PERMIT_ON_FIRST_PERMIT;
+    default:
+      // A semantic this SDK does not know is refused as the PDP refuses it over HTTP, never sent
+      // as unspecified and decided under `execute_all` (BUG-0305).
+      throw new Refusal(
+        "validation",
+        "payload_malformed",
+        `unknown evaluations semantic ${JSON.stringify(value)}: execute_all, deny_on_first_deny or permit_on_first_permit`,
+      );
   }
 }
 

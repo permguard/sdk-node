@@ -71,6 +71,7 @@ export class GrpcTransport implements Transport {
     many: boolean,
     options: Required<Pick<CallOptions, "timeoutMs">> & CallOptions,
   ): Promise<EvaluateResponse> {
+    refuseAborted(options.signal);
     try {
       const method = many ? this.client.evaluateMany : this.client.evaluate;
       const response = await method.call(this.client, requestToProto(request), {
@@ -80,13 +81,14 @@ export class GrpcTransport implements Transport {
       }).response;
       return responseFromProto(response);
     } catch (error) {
-      throw mapError(error);
+      throw mapError(error, options.signal);
     }
   }
 
   async getConfiguration(
     options: Required<Pick<CallOptions, "timeoutMs">> & CallOptions,
   ): Promise<Configuration> {
+    refuseAborted(options.signal);
     try {
       const response = await this.client.getConfiguration(
         GetConfigurationRequest.create(),
@@ -98,7 +100,7 @@ export class GrpcTransport implements Transport {
       ).response;
       return configurationFromProto(response);
     } catch (error) {
-      throw mapError(error);
+      throw mapError(error, options.signal);
     }
   }
 
@@ -107,7 +109,21 @@ export class GrpcTransport implements Transport {
   }
 }
 
-function mapError(error: unknown): Error {
+/// An abort, as the HTTP transport rejects one: a `DOMException` named `AbortError` (BUG-0304).
+function abortError(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  if (reason instanceof Error && reason.name === "AbortError") return reason;
+  return new DOMException("This operation was aborted", "AbortError");
+}
+
+/// A signal aborted before the call is refused before anything is sent: the gRPC library only
+/// listens for an abort to come (BUG-0304).
+function refuseAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortError(signal);
+}
+
+function mapError(error: unknown, signal?: AbortSignal): Error {
+  if (signal?.aborted) return abortError(signal);
   if (!(error instanceof RpcError)) {
     return error instanceof Error ? error : new Error(String(error));
   }

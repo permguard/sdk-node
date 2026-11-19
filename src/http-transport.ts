@@ -121,7 +121,21 @@ export class HttpTransport implements Transport {
             chunks.push(chunk);
           });
           response.on("end", () => {
+            clearTimeout(deadline);
             const raw = Buffer.concat(chunks).toString("utf8");
+            const status = response.statusCode ?? 0;
+            // The status first: an error body need not be JSON, a proxy's or the PDP's own
+            // `413` (BUG-0282).
+            if (status < 200 || status >= 300) {
+              let decoded: unknown;
+              try {
+                decoded = JSON.parse(raw);
+              } catch {
+                decoded = undefined;
+              }
+              reject(refusal(status, decoded, raw));
+              return;
+            }
             let decoded: unknown;
             try {
               decoded = JSON.parse(raw);
@@ -133,33 +147,36 @@ export class HttpTransport implements Transport {
               );
               return;
             }
-            const status = response.statusCode ?? 0;
-            if (status < 200 || status >= 300) {
-              reject(refusal(status, decoded));
-              return;
-            }
             resolve(decoded);
           });
         },
       );
-      request.setTimeout(options.timeoutMs, () => {
+      // The timeout bounds the whole call, not the time between bytes: a server trickling its
+      // answer never keeps it pending past it (BUG-0309).
+      const deadline = setTimeout(() => {
         request.destroy(new Error(`Permguard request timed out after ${options.timeoutMs}ms`));
+      }, options.timeoutMs);
+      deadline.unref();
+      request.on("error", (error) => {
+        clearTimeout(deadline);
+        reject(error);
       });
-      request.on("error", reject);
       request.end(body);
     });
   }
 }
 
-function refusal(status: number, value: unknown): Refusal {
+function refusal(status: number, value: unknown, raw: string): Refusal {
   const payload =
     value !== null && typeof value === "object" && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+  // A body that is not a JSON object is the message as the server wrote it.
+  const body = value === undefined ? raw.trim() : "";
   return new Refusal(
     text(payload.class) || httpClass(status),
     text(payload.code) || "http_status",
-    text(payload.message) || http.STATUS_CODES[status] || "HTTP request failed",
+    text(payload.message) || body || http.STATUS_CODES[status] || "HTTP request failed",
     { httpStatus: status },
   );
 }
