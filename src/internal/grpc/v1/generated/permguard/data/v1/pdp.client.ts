@@ -5,6 +5,25 @@
 // Copyright (c) 2022 Nitro Agility S.r.l.
 // SPDX-License-Identifier: Apache-2.0
 //
+//
+// The `permguard.pdp.v1` interface over gRPC.
+//
+// Permguard's native policy decision interface, expressed in protobuf. It is
+// field-for-field the same request and the same answer the HTTP binding serves,
+// so a deployment chooses a transport without choosing semantics — and the
+// discovery below describes the same interface the HTTP document does.
+//
+// Free-form parts of the contract (`properties`, `context`, a partition's own
+// input) ride as `google.protobuf.Struct` / `Value`: they are policy data, and
+// a schema for them belongs to the policy language, not to this file.
+//
+import { TemporalPolicyDecisionPoint } from "./pdp";
+import type { GetTemporalSignersResponse } from "./pdp";
+import type { GetTemporalSignersRequest } from "./pdp";
+import type { GetTemporalConfigurationResponse } from "./pdp";
+import type { GetTemporalConfigurationRequest } from "./pdp";
+import type { SubmitEventResponse } from "./pdp";
+import type { SubmitEventRequest } from "./pdp";
 import type { RpcTransport } from "@protobuf-ts/runtime-rpc";
 import type { ServiceInfo } from "@protobuf-ts/runtime-rpc";
 import { PolicyDecisionPoint } from "./pdp";
@@ -16,26 +35,33 @@ import type { EvaluateRequest } from "./pdp";
 import type { UnaryCall } from "@protobuf-ts/runtime-rpc";
 import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
 /**
- * The native, stateless decision service a PEP calls.
+ * The decision service a PEP calls.
  *
  * @generated from protobuf service permguard.data.v1.PolicyDecisionPoint
  */
 export interface IPolicyDecisionPointClient {
     /**
+     * One access evaluation.
+     *
      * @generated from protobuf rpc: Evaluate(permguard.data.v1.EvaluateRequest) returns (permguard.data.v1.EvaluateResponse);
      */
     evaluate(input: EvaluateRequest, options?: RpcOptions): UnaryCall<EvaluateRequest, EvaluateResponse>;
     /**
+     * Many, in one exchange, resolved by the requested semantic.
+     *
      * @generated from protobuf rpc: EvaluateMany(permguard.data.v1.EvaluateRequest) returns (permguard.data.v1.EvaluateResponse);
      */
     evaluateMany(input: EvaluateRequest, options?: RpcOptions): UnaryCall<EvaluateRequest, EvaluateResponse>;
     /**
+     * What `permguard.pdp.v1` offers here — the same thing the HTTP binding
+     * publishes at `/.well-known/permguard-pdp-v1-configuration`.
+     *
      * @generated from protobuf rpc: GetConfiguration(permguard.data.v1.GetConfigurationRequest) returns (permguard.data.v1.GetConfigurationResponse);
      */
     getConfiguration(input: GetConfigurationRequest, options?: RpcOptions): UnaryCall<GetConfigurationRequest, GetConfigurationResponse>;
 }
 /**
- * The native, stateless decision service a PEP calls.
+ * The decision service a PEP calls.
  *
  * @generated from protobuf service permguard.data.v1.PolicyDecisionPoint
  */
@@ -46,6 +72,8 @@ export class PolicyDecisionPointClient implements IPolicyDecisionPointClient, Se
     constructor(private readonly _transport: RpcTransport) {
     }
     /**
+     * One access evaluation.
+     *
      * @generated from protobuf rpc: Evaluate(permguard.data.v1.EvaluateRequest) returns (permguard.data.v1.EvaluateResponse);
      */
     evaluate(input: EvaluateRequest, options?: RpcOptions): UnaryCall<EvaluateRequest, EvaluateResponse> {
@@ -53,6 +81,8 @@ export class PolicyDecisionPointClient implements IPolicyDecisionPointClient, Se
         return stackIntercept<EvaluateRequest, EvaluateResponse>("unary", this._transport, method, opt, input);
     }
     /**
+     * Many, in one exchange, resolved by the requested semantic.
+     *
      * @generated from protobuf rpc: EvaluateMany(permguard.data.v1.EvaluateRequest) returns (permguard.data.v1.EvaluateResponse);
      */
     evaluateMany(input: EvaluateRequest, options?: RpcOptions): UnaryCall<EvaluateRequest, EvaluateResponse> {
@@ -60,10 +90,101 @@ export class PolicyDecisionPointClient implements IPolicyDecisionPointClient, Se
         return stackIntercept<EvaluateRequest, EvaluateResponse>("unary", this._transport, method, opt, input);
     }
     /**
+     * What `permguard.pdp.v1` offers here — the same thing the HTTP binding
+     * publishes at `/.well-known/permguard-pdp-v1-configuration`.
+     *
      * @generated from protobuf rpc: GetConfiguration(permguard.data.v1.GetConfigurationRequest) returns (permguard.data.v1.GetConfigurationResponse);
      */
     getConfiguration(input: GetConfigurationRequest, options?: RpcOptions): UnaryCall<GetConfigurationRequest, GetConfigurationResponse> {
         const method = this.methods[2], opt = this._transport.mergeOptions(options);
         return stackIntercept<GetConfigurationRequest, GetConfigurationResponse>("unary", this._transport, method, opt, input);
+    }
+}
+// ─── permguard.api.pdp.temporal.v1alpha1 ─────────────────────────────────────
+// 
+// The stateful decision interface: an occurrence is recorded into a durable
+// history and decided against it. Field for field the JSON binding, so a
+// deployment chooses a transport without choosing semantics.
+// 
+// `v1alpha1` because its wire and replication contracts have not yet proven
+// stable — not because anything here is unimplemented.
+
+/**
+ * The temporal decision service a PEP calls.
+ *
+ * @generated from protobuf service permguard.data.v1.TemporalPolicyDecisionPoint
+ */
+export interface ITemporalPolicyDecisionPointClient {
+    /**
+     * One occurrence: recorded, observed, and decided when its kind decides.
+     *
+     * @generated from protobuf rpc: SubmitEvent(permguard.data.v1.SubmitEventRequest) returns (permguard.data.v1.SubmitEventResponse);
+     */
+    submitEvent(input: SubmitEventRequest, options?: RpcOptions): UnaryCall<SubmitEventRequest, SubmitEventResponse>;
+    /**
+     * What this interface offers here — the same thing the HTTP binding
+     * publishes at `/.well-known/permguard-pdp-temporal-v1alpha1-configuration`.
+     *
+     * @generated from protobuf rpc: GetTemporalConfiguration(permguard.data.v1.GetTemporalConfigurationRequest) returns (permguard.data.v1.GetTemporalConfigurationResponse);
+     */
+    getTemporalConfiguration(input: GetTemporalConfigurationRequest, options?: RpcOptions): UnaryCall<GetTemporalConfigurationRequest, GetTemporalConfigurationResponse>;
+    /**
+     * This plane's own journal watermarks and signer history for one ledger —
+     * which key signed which stretch, public keys included. The same document
+     * the HTTP binding serves at `/temporal/v1alpha1/zones/{zone}/ledgers/{ledger}/signers`.
+     *
+     * @generated from protobuf rpc: GetSigners(permguard.data.v1.GetTemporalSignersRequest) returns (permguard.data.v1.GetTemporalSignersResponse);
+     */
+    getSigners(input: GetTemporalSignersRequest, options?: RpcOptions): UnaryCall<GetTemporalSignersRequest, GetTemporalSignersResponse>;
+}
+// ─── permguard.api.pdp.temporal.v1alpha1 ─────────────────────────────────────
+// 
+// The stateful decision interface: an occurrence is recorded into a durable
+// history and decided against it. Field for field the JSON binding, so a
+// deployment chooses a transport without choosing semantics.
+// 
+// `v1alpha1` because its wire and replication contracts have not yet proven
+// stable — not because anything here is unimplemented.
+
+/**
+ * The temporal decision service a PEP calls.
+ *
+ * @generated from protobuf service permguard.data.v1.TemporalPolicyDecisionPoint
+ */
+export class TemporalPolicyDecisionPointClient implements ITemporalPolicyDecisionPointClient, ServiceInfo {
+    typeName = TemporalPolicyDecisionPoint.typeName;
+    methods = TemporalPolicyDecisionPoint.methods;
+    options = TemporalPolicyDecisionPoint.options;
+    constructor(private readonly _transport: RpcTransport) {
+    }
+    /**
+     * One occurrence: recorded, observed, and decided when its kind decides.
+     *
+     * @generated from protobuf rpc: SubmitEvent(permguard.data.v1.SubmitEventRequest) returns (permguard.data.v1.SubmitEventResponse);
+     */
+    submitEvent(input: SubmitEventRequest, options?: RpcOptions): UnaryCall<SubmitEventRequest, SubmitEventResponse> {
+        const method = this.methods[0], opt = this._transport.mergeOptions(options);
+        return stackIntercept<SubmitEventRequest, SubmitEventResponse>("unary", this._transport, method, opt, input);
+    }
+    /**
+     * What this interface offers here — the same thing the HTTP binding
+     * publishes at `/.well-known/permguard-pdp-temporal-v1alpha1-configuration`.
+     *
+     * @generated from protobuf rpc: GetTemporalConfiguration(permguard.data.v1.GetTemporalConfigurationRequest) returns (permguard.data.v1.GetTemporalConfigurationResponse);
+     */
+    getTemporalConfiguration(input: GetTemporalConfigurationRequest, options?: RpcOptions): UnaryCall<GetTemporalConfigurationRequest, GetTemporalConfigurationResponse> {
+        const method = this.methods[1], opt = this._transport.mergeOptions(options);
+        return stackIntercept<GetTemporalConfigurationRequest, GetTemporalConfigurationResponse>("unary", this._transport, method, opt, input);
+    }
+    /**
+     * This plane's own journal watermarks and signer history for one ledger —
+     * which key signed which stretch, public keys included. The same document
+     * the HTTP binding serves at `/temporal/v1alpha1/zones/{zone}/ledgers/{ledger}/signers`.
+     *
+     * @generated from protobuf rpc: GetSigners(permguard.data.v1.GetTemporalSignersRequest) returns (permguard.data.v1.GetTemporalSignersResponse);
+     */
+    getSigners(input: GetTemporalSignersRequest, options?: RpcOptions): UnaryCall<GetTemporalSignersRequest, GetTemporalSignersResponse> {
+        const method = this.methods[2], opt = this._transport.mergeOptions(options);
+        return stackIntercept<GetTemporalSignersRequest, GetTemporalSignersResponse>("unary", this._transport, method, opt, input);
     }
 }

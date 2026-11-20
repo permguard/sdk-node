@@ -6,6 +6,7 @@ import { Struct, Value } from "./internal/grpc/v1/generated/google/protobuf/stru
 import * as pb from "./internal/grpc/v1/generated/permguard/data/v1/pdp";
 import {
   type Action,
+  type Attestation,
   type Configuration,
   type Decision,
   type DecisionContext,
@@ -14,11 +15,13 @@ import {
   type EvaluateResponse,
   type Evaluation,
   EvaluationsSemantic,
+  type Evidence,
   type JsonObject,
   type JsonValue,
   type PartitionInput,
   type PartitionInputs,
   type Reason,
+  type ResponseSigning,
 } from "./models";
 
 type WireObject = Record<string, unknown>;
@@ -42,6 +45,7 @@ export function requestToJson(request: EvaluateRequest): WireObject {
     };
   }
   put(result, "request_id", request.requestId);
+  put(result, "request_nonce", request.requestNonce);
   return result;
 }
 
@@ -52,6 +56,7 @@ export function responseFromJson(value: unknown): EvaluateResponse {
     requestId: optionalString(payload.request_id),
     context: contextFromJson(payload.context),
     evaluations: array(payload.evaluations).map(decisionFromJson),
+    attestation: attestationFromJson(payload.attestation),
   };
 }
 
@@ -73,6 +78,18 @@ export function configurationFromJson(value: unknown): Configuration {
       ledger: string(scope.ledger),
       profile: string(scope.profile),
     },
+    version: string(payload.version),
+    component: string(payload.component),
+    state: string(payload.state),
+    stage: string(payload.stage),
+    sunset: optionalString(payload.sunset),
+    limits: Object.fromEntries(
+      Object.entries(optionalObject(payload.limits)).map(([name, value]) => [
+        name,
+        typeof value === "number" ? value : 0,
+      ]),
+    ),
+    responseSigning: signingFromJson(payload.response_signing),
   };
 }
 
@@ -93,6 +110,7 @@ export function requestToProto(request: EvaluateRequest): pb.EvaluateRequest {
     ),
     requestId: request.requestId ?? "",
     partitionInputs: inputsToProto(request.partitionInputs),
+    requestNonce: request.requestNonce ?? "",
   });
 }
 
@@ -102,6 +120,14 @@ export function responseFromProto(response: pb.EvaluateResponse): EvaluateRespon
     requestId: response.requestId || undefined,
     context: contextFromProto(response.context),
     evaluations: response.evaluations.map(decisionFromProto),
+    attestation:
+      response.attestation === undefined
+        ? undefined
+        : {
+            protected: response.attestation.protected,
+            payload: response.attestation.payload,
+            signature: response.attestation.signature,
+          },
   };
 }
 
@@ -121,6 +147,19 @@ export function configurationFromProto(
       zone: response.storeScope?.zone ?? "",
       ledger: response.storeScope?.ledger ?? "",
       profile: response.storeScope?.profile ?? "",
+    },
+    version: response.version,
+    component: response.component,
+    state: response.state,
+    stage: response.stage,
+    sunset: response.sunset,
+    limits: Object.fromEntries(
+      Object.entries(response.limits).map(([name, value]) => [name, Number(value)]),
+    ),
+    responseSigning: {
+      state: response.responseSigning?.state ?? "",
+      validitySeconds: response.responseSigning?.validitySeconds || undefined,
+      clockSkewSeconds: response.responseSigning?.clockSkewSeconds || undefined,
     },
   };
 }
@@ -257,6 +296,47 @@ function contextFromJson(value: unknown): DecisionContext | undefined {
     reasonUser: reasonFromJson(payload.reason_user),
     policies: array(payload.policies).map(string),
     absentInputs: array(payload.absent_inputs).map(string),
+    evidence: evidenceFromJson(payload.evidence),
+  };
+}
+
+function evidenceFromJson(value: unknown): Evidence | undefined {
+  if (value === undefined || value === null) return undefined;
+  const payload = object(value, "decision evidence");
+  const position =
+    payload.position === undefined || payload.position === null
+      ? undefined
+      : object(payload.position, "evidence position");
+  return {
+    mode: string(payload.mode),
+    status: string(payload.status),
+    recordId: optionalString(payload.record_id),
+    position: position && {
+      hostId: string(position.host_id),
+      run: string(position.run),
+      sequence: string(position.sequence),
+    },
+  };
+}
+
+function attestationFromJson(value: unknown): Attestation | undefined {
+  if (value === undefined || value === null) return undefined;
+  const payload = object(value, "attestation");
+  return {
+    protected: string(payload.protected),
+    payload: string(payload.payload),
+    signature: string(payload.signature),
+  };
+}
+
+function signingFromJson(value: unknown): ResponseSigning {
+  const payload = optionalObject(value);
+  const seconds = (field: unknown): number | undefined =>
+    typeof field === "number" && field > 0 ? field : undefined;
+  return {
+    state: string(payload.state),
+    validitySeconds: seconds(payload.validity_seconds),
+    clockSkewSeconds: seconds(payload.clock_skew_seconds),
   };
 }
 
@@ -284,6 +364,19 @@ function contextFromProto(
     reasonUser: reasonFromProto(value.reasonUser),
     policies: [...value.policies],
     absentInputs: [...value.absentInputs],
+    evidence:
+      value.evidence === undefined
+        ? undefined
+        : {
+            mode: value.evidence.mode,
+            status: value.evidence.status,
+            recordId: value.evidence.recordId,
+            position: value.evidence.position && {
+              hostId: value.evidence.position.hostId,
+              run: value.evidence.position.run,
+              sequence: value.evidence.position.sequence,
+            },
+          },
   };
 }
 

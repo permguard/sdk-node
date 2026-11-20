@@ -5,6 +5,7 @@ export { Client, type ClientOptions } from "./client";
 export { Refusal } from "./errors";
 export {
   type Action,
+  type Attestation,
   type Configuration,
   type Decision,
   type DecisionContext,
@@ -15,12 +16,15 @@ export {
   type Evaluation,
   type EvaluationOptions,
   EvaluationsSemantic,
+  type Evidence,
+  type EvidencePosition,
   type JsonObject,
   type JsonPrimitive,
   type JsonValue,
   type PartitionInput,
   type PartitionInputs,
   type Reason,
+  type ResponseSigning,
   type StoreScope,
 } from "./models";
 export type { CallOptions } from "./transport";

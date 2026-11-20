@@ -12,10 +12,11 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "generate-grpc": "protoc --ts_out src/internal/grpc/v1/generated --proto_path ./src/proto src/proto/permguard/data/v1/pdp.proto && bash scripts/header-generated.sh src/internal/grpc/v1/generated/google/protobuf/struct.ts src/internal/grpc/v1/generated/permguard/data/v1/pdp.ts src/internal/grpc/v1/generated/permguard/data/v1/pdp.client.ts",
+    "generate-grpc": "protoc --ts_out src/internal/grpc/v1/generated --proto_path ./src/proto src/proto/permguard/data/v1/pdp.proto && bash scripts/header-generated.sh src/internal/grpc/v1/generated/google/protobuf/struct.ts src/internal/grpc/v1/generated/google/protobuf/wrappers.ts src/internal/grpc/v1/generated/permguard/data/v1/pdp.ts src/internal/grpc/v1/generated/permguard/data/v1/pdp.client.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --require ts-node/register --test tests/*.test.ts",
+    "test:e2e": "node --require ts-node/register --test e2e/*.e2e.ts",
     "prepack": "npm run build"
   },
   "keywords": [],

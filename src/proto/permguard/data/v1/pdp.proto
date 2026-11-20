@@ -1,42 +1,85 @@
 // Copyright (c) 2022 Nitro Agility S.r.l.
 // SPDX-License-Identifier: Apache-2.0
 
+// The `permguard.pdp.v1` interface over gRPC.
+//
+// Permguard's native policy decision interface, expressed in protobuf. It is
+// field-for-field the same request and the same answer the HTTP binding serves,
+// so a deployment chooses a transport without choosing semantics — and the
+// discovery below describes the same interface the HTTP document does.
+//
+// Free-form parts of the contract (`properties`, `context`, a partition's own
+// input) ride as `google.protobuf.Struct` / `Value`: they are policy data, and
+// a schema for them belongs to the policy language, not to this file.
+
 syntax = "proto3";
 
 package permguard.data.v1;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
 
-// The native, stateless decision service a PEP calls.
+// The decision service a PEP calls.
 service PolicyDecisionPoint {
+  // One access evaluation.
   rpc Evaluate(EvaluateRequest) returns (EvaluateResponse);
+  // Many, in one exchange, resolved by the requested semantic.
   rpc EvaluateMany(EvaluateRequest) returns (EvaluateResponse);
+  // What `permguard.pdp.v1` offers here — the same thing the HTTP binding
+  // publishes at `/.well-known/permguard-pdp-v1-configuration`.
   rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse);
 }
 
+// Whom a decision is about, or what it targets.
 message Entity {
   string type = 1;
   string id = 2;
   google.protobuf.Struct properties = 3;
 }
 
+// The operation attempted.
 message Action {
   string name = 1;
   google.protobuf.Struct properties = 2;
 }
 
+// One partition's own input, addressed to it by name.
+//
+// `type` is a registered partition input contract — `permguard.cedar.entities.v1`
+// carries an array of Cedar entities, `permguard.rego.data.v1` a JSON object
+// that arrives at `input.partition`. It is an *assertion*: the ledger's manifest
+// decides what each partition accepts, and a `type` that disagrees with it is
+// refused rather than obeyed. A caller cannot pick the parser for data it also
+// supplies.
 message PartitionInput {
   string type = 1;
   google.protobuf.Value data = 2;
 }
 
-// Presence is significant inside an evaluation: absent inherits the request
-// inputs, while a present empty map replaces them with no inputs.
+// The inputs of one boxcarred evaluation, wrapped so that **stating none** and
+// **stating nothing** are different messages.
+//
+// A proto3 `map` cannot tell an absent field from an empty one: both arrive as
+// zero entries. For a top-level request that costs nothing — no inputs is no
+// inputs — but inside an evaluation the two mean opposite things. An evaluation
+// that states `{}` replaces the request's defaults with nothing; one that states
+// no inputs at all inherits them. Read as a plain map, `{}` inherited, so the
+// same request was decided against the defaults over gRPC and against nothing
+// over HTTP.
+//
+// A message field has explicit presence, so the wrapper *is* the distinction —
+// rather than a parallel `bool` beside the map, which can disagree with it and
+// then needs a rule for which one wins.
 message PartitionInputs {
   map<string, PartitionInput> inputs = 1;
 }
 
+// One entry of a boxcarred request: whatever it sets overrides the defaults.
 message Evaluation {
+  // 5 was `entities`, removed. 7 was `partition_inputs` as a bare map, which
+  // could not express "states none" — the tag is reserved rather than reused,
+  // because a map and a message are different encodings and a peer still
+  // sending the old shape would be decoded as something else.
   reserved 5, 7;
   reserved "entities";
 
@@ -45,9 +88,13 @@ message Evaluation {
   Action action = 3;
   google.protobuf.Struct context = 4;
   string request_id = 6;
+  // Present — even with no entries — this replaces the request's defaults
+  // whole, exactly as `subject` and `context` do. Never merged key by key.
+  // Absent, the evaluation inherits them.
   PartitionInputs partition_inputs = 8;
 }
 
+// How a batch resolves.
 enum EvaluationsSemantic {
   EVALUATIONS_SEMANTIC_UNSPECIFIED = 0;
   EVALUATIONS_SEMANTIC_EXECUTE_ALL = 1;
@@ -56,34 +103,90 @@ enum EvaluationsSemantic {
 }
 
 message EvaluateRequest {
+  // The removed `entities` extension. The tag and the name are reserved so no
+  // future field can be given them: a peer still sending the old message would
+  // otherwise have its entity graph decoded as whatever took its place.
   reserved 9;
   reserved "entities";
 
+  // Which policy store to decide against. Required, both of them: there is no
+  // default, and deciding against the wrong store is the one failure nobody
+  // can debug.
   string zone = 1;
   string ledger = 2;
+  // Which of the ledger's profiles. `default` when empty.
   string profile = 3;
+
+  // The defaults every evaluation inherits.
   Entity subject = 4;
   Entity resource = 5;
   Action action = 6;
   google.protobuf.Struct context = 7;
+
+  // Extensions.
   Entity principal = 8;
+
   repeated Evaluation evaluations = 10;
   EvaluationsSemantic evaluations_semantic = 11;
   string request_id = 12;
+  // What each partition of the profile is given, by the partition's own name.
+  // The only way a request supplies runtime data: there is no addressing by
+  // language, because two partitions of one runtime hold different worlds.
+  //
+  // A bare map here, and a `PartitionInputs` inside an evaluation, because the
+  // two fields genuinely differ: at the top level "absent" and "empty" both
+  // mean *no defaults*, and inside an evaluation they mean *inherit* and
+  // *replace with nothing*. The wire mirrors the contract rather than
+  // flattening it into one shape that is wrong in one of the two places.
   map<string, PartitionInput> partition_inputs = 13;
+  // Asks for a signed response: base64url without padding, 16 to 64 bytes.
+  // Empty asks for none. A plane that cannot sign refuses rather than answer
+  // unsigned.
+  string request_nonce = 14;
 }
 
+// The two audiences of one reason.
 message Reason {
   string code = 1;
   string message = 2;
 }
 
 message DecisionContext {
+  // This decision's own identifier, matching its audit record.
   string id = 1;
   Reason reason_admin = 2;
   Reason reason_user = 3;
+  // The policies that decided it, by identity.
   repeated string policies = 4;
+  // The profile's partitions that declare an input and were addressed with
+  // none: they decided against the type's empty input. Empty when every
+  // declared input arrived.
   repeated string absent_inputs = 5;
+  // What became of this decision's record. Absent on a batch's own context.
+  Evidence evidence = 6;
+}
+
+// The evidence of one decision: the same closed object the REST answer
+// carries, its values spelled as there.
+message Evidence {
+  // `required`, `best_effort` or `disabled`.
+  string mode = 1;
+  // `durable`, `sampled_out`, `dropped` or `disabled`.
+  string status = 2;
+  // The record's id, present exactly when the status is `durable`.
+  optional string record_id = 3;
+  // Where the record sits, present exactly when the status is `durable`.
+  EvidencePosition position = 4;
+}
+
+// Where a durable record sits.
+message EvidencePosition {
+  // The Host's id, a lowercase hyphenated UUID.
+  string host_id = 1;
+  // The run, 32 lowercase hex digits.
+  string run = 2;
+  // The sequence in the run, unsigned decimal text.
+  string sequence = 3;
 }
 
 message Decision {
@@ -96,27 +199,282 @@ message EvaluateResponse {
   bool decision = 1;
   string request_id = 2;
   DecisionContext context = 3;
+  // Present exactly when the request carried evaluations, in the same order.
   repeated Decision evaluations = 4;
+  // The signed response, present exactly when `request_nonce` asked for one.
+  Attestation attestation = 5;
+}
+
+// A flattened JWS of `permguard.decision.response.v1`: the three base64url
+// values the REST answer carries as `attestation`, verifying to the same
+// payload bytes.
+message Attestation {
+  string protected = 1;
+  string payload = 2;
+  string signature = 3;
 }
 
 message GetConfigurationRequest {}
 
+// Where one question is asked, and where many are.
 message Endpoints {
   string evaluation = 1;
   string evaluations = 2;
 }
 
+// Which fields name the policy store, and whether a caller must state them.
 message StoreScope {
+  // Where the store is named: `payload` — never the URL.
   string in = 1;
   string zone = 2;
   string ledger = 3;
   string profile = 4;
 }
 
+// What this plane publishes about the interface it serves. Field for field the
+// JSON document, so a caller learns the same thing over either transport.
 message GetConfigurationResponse {
+  // The contract and its version: `permguard.pdp.v1`.
   string interface = 1;
+  // This PDP's identifier.
   string pdp = 2;
   Endpoints endpoints = 3;
+  // Every entry is implemented and tested here. A capability is a promise.
   repeated string capabilities = 4;
   StoreScope store_scope = 5;
+  // The common header (WP-7.4a): the product version `/version` publishes, the serving
+  // component, its lifecycle phase, the interface's stage, and its sunset when deprecated.
+  string version = 6;
+  string component = 7;
+  string state = 8;
+  string stage = 9;
+  optional string sunset = 10;
+  // The interface's ceilings, by name; empty when it publishes none.
+  map<string, uint64> limits = 11;
+  // Whether a request may ask for a signed response.
+  ResponseSigning response_signing = 12;
+}
+
+// `optional` with the lifetime the server emits and the skew a verifier
+// allows, or `disabled`, whose two numbers are absent from the JSON document.
+message ResponseSigning {
+  string state = 1;
+  uint32 validity_seconds = 2;
+  uint32 clock_skew_seconds = 3;
+}
+
+// ─── permguard.api.pdp.temporal.v1alpha1 ─────────────────────────────────────
+//
+// The stateful decision interface: an occurrence is recorded into a durable
+// history and decided against it. Field for field the JSON binding, so a
+// deployment chooses a transport without choosing semantics.
+//
+// `v1alpha1` because its wire and replication contracts have not yet proven
+// stable — not because anything here is unimplemented.
+
+// The temporal decision service a PEP calls.
+service TemporalPolicyDecisionPoint {
+  // One occurrence: recorded, observed, and decided when its kind decides.
+  rpc SubmitEvent(SubmitEventRequest) returns (SubmitEventResponse);
+  // What this interface offers here — the same thing the HTTP binding
+  // publishes at `/.well-known/permguard-pdp-temporal-v1alpha1-configuration`.
+  rpc GetTemporalConfiguration(GetTemporalConfigurationRequest)
+      returns (GetTemporalConfigurationResponse);
+  // This plane's own journal watermarks and signer history for one ledger —
+  // which key signed which stretch, public keys included. The same document
+  // the HTTP binding serves at `/temporal/v1alpha1/zones/{zone}/ledgers/{ledger}/signers`.
+  rpc GetSigners(GetTemporalSignersRequest) returns (GetTemporalSignersResponse);
+}
+
+message GetTemporalSignersRequest {
+  string zone = 1;
+  string ledger = 2;
+  // Inclusive offset range; leave both zero for the whole history.
+  uint64 from_seq = 3;
+  uint64 until_seq = 4;
+}
+
+// One stretch of the journal and the key that signed it.
+message TemporalSignerSpan {
+  uint64 from_seq = 1;
+  string kid = 2;
+  // The public key itself, as this plane publishes it: a JWK, as JSON.
+  bytes jwk = 3;
+}
+
+message GetTemporalSignersResponse {
+  // The producer identity this plane writes its streams under.
+  string producer_class = 1;
+  string producer = 2;
+  string instance = 3;
+  // This plane's own watermarks: durable, then signed, then acknowledged.
+  uint64 durable_through = 4;
+  uint64 signed_through = 5;
+  uint64 acked_through = 6;
+  repeated TemporalSignerSpan spans = 7;
+}
+
+// Which policy store an occurrence belongs to.
+//
+// In the payload, never the URL — the same rule the stateless interface
+// follows, and for the same reason: a store named in a path is a store a proxy
+// can rewrite.
+message EventStore {
+  string zone = 1;
+  string ledger = 2;
+  // Which of the ledger's profiles. `default` when empty, and it must be a
+  // profile of this interface's type.
+  string profile = 3;
+}
+
+// The typed occurrence: which registered contract it is, and its payload.
+//
+// `type` is an *assertion*, checked against what the addressed partitions
+// accept — never a selector. The payload rides as `Struct` because its shape is
+// the event contract's, and a schema for it belongs to that contract rather
+// than to this file: a second registered contract is a registry entry with its
+// own validator, not a new message here.
+message TypedEvent {
+  string type = 1;
+  google.protobuf.Struct data = 2;
+}
+
+message SubmitEventRequest {
+  EventStore store = 1;
+  TypedEvent event = 2;
+}
+
+// What a submission did.
+enum SubmitOutcome {
+  SUBMIT_OUTCOME_UNSPECIFIED = 0;
+  // A decision kind: `decision` carries the verdict.
+  SUBMIT_OUTCOME_DECIDED = 1;
+  // A history-only kind: durably recorded and observed, and there is no verdict.
+  SUBMIT_OUTCOME_ACCEPTED = 2;
+  // A decision kind whose profile result is indeterminate: a partition could
+  // not evaluate the occurrence and no policy denied it. The occurrence is
+  // durable and receipted; `decision` is absent.
+  SUBMIT_OUTCOME_INDETERMINATE = 3;
+}
+
+// Where an occurrence sits in this plane's stream.
+//
+// Not a global order: there is no truthful total order across producers. This
+// says which producer instance wrote it and at which position.
+message EventWatermark {
+  string instance = 1;
+  uint64 sequence = 2;
+  // The derived history key's digest — the index key, never a substitute for
+  // the values, which travel in the signed record.
+  string history = 3;
+}
+
+message SubmitEventResponse {
+  SubmitOutcome outcome = 1;
+  string event_id = 2;
+  EventWatermark watermark = 3;
+  // Set exactly when `outcome` is `SUBMIT_OUTCOME_DECIDED`. A history-only kind
+  // leaves it unset rather than sending `false`: a fabricated verdict a caller
+  // cannot tell from a decided one is the most dangerous thing this interface
+  // could return, and proto3's default for a bare `bool` is exactly that.
+  google.protobuf.BoolValue decision = 4;
+  // The decision's own identifier, matching its audit record.
+  string decision_id = 5;
+  // The policies that decided it, by identity.
+  repeated string policies = 6;
+  Reason reason = 7;
+  // Which history this decision ranged over, and how fresh it was. Always
+  // present, including for a plane that reads only its own events: an auditor
+  // reproducing a decision needs to know what was visible, and "local" is an
+  // answer to that question rather than the absence of one.
+  DecisionHistory history = 8;
+  // One answer per addressed partition, in profile order. Empty for a
+  // history-only occurrence; the aggregate decision above remains authoritative.
+  repeated TemporalPartitionEvaluation evaluations = 9;
+}
+
+message TemporalPartitionEvaluation {
+  string partition = 1;
+  bool decision = 2;
+  repeated string policies = 3;
+  Reason reason = 4;
+}
+
+// Which history a decision ranged over.
+//
+// Deliberately not called consistency without qualification: replication is
+// asynchronous, so a shared mode ranges over what had *arrived*, and the
+// watermark says exactly which events those were.
+message DecisionHistory {
+  // `local`, `shared-eventual` or `shared-bounded`.
+  string mode = 1;
+  // The opaque import watermark this decision saw, for a shared mode. Echo it,
+  // never parse it.
+  string watermark = 2;
+  // How long ago the imported history was last refreshed, in seconds. Absent
+  // for a local history; zero is a real value for a just-refreshed shared one.
+  optional uint64 staleness_seconds = 3;
+  // Recorded holes the importer could not recover from retention.
+  uint64 gaps = 4;
+  // The exact vector frontier a shared decision observed (WP-6.4a); empty for
+  // a local history.
+  repeated FrontierRun frontier = 5;
+  // The revision of the origin set defining the required origins, in hex.
+  optional string origin_set_revision = 6;
+  // The freshness bound in force, in seconds.
+  optional uint64 max_staleness_seconds = 7;
+  // The required origins a `shared-eventual` decision is degraded by.
+  repeated string degraded = 8;
+  // The time the runtime's windows range over: `occurred_at`.
+  string time = 9;
+  // How many logical occurrences of the history a digest conflict
+  // quarantined (WP-6.4b); zero when none.
+  uint64 quarantined = 10;
+}
+
+// One imported run of one origin, as a decision held it.
+message FrontierRun {
+  // The origin Host and its run, in hex.
+  string origin = 1;
+  string run = 2;
+  // The last sequence held, contiguously, and the oldest still retained.
+  uint64 covered_through = 3;
+  uint64 low_watermark = 4;
+  // The holes recorded in the run.
+  repeated FrontierGap gaps = 5;
+}
+
+// One recorded hole: the first sequence missing and, when known, the last.
+message FrontierGap {
+  uint64 from = 1;
+  optional uint64 through = 2;
+}
+
+message GetTemporalConfigurationRequest {}
+
+// Where an occurrence is submitted.
+message TemporalEndpoints {
+  string submission = 1;
+}
+
+// What this plane publishes about the temporal interface. Field for field the
+// JSON document, so a caller learns the same thing over either transport.
+message GetTemporalConfigurationResponse {
+  // The contract and its version: `permguard.api.pdp.temporal.v1alpha1`.
+  string interface = 1;
+  string pdp = 2;
+  TemporalEndpoints endpoints = 3;
+  // The registered occurrence contracts this plane accepts.
+  repeated string event_types = 4;
+  repeated string capabilities = 5;
+  StoreScope store_scope = 6;
+  // The common header (WP-7.4a): the product version `/version` publishes, the serving
+  // component, its lifecycle phase, the interface's stage, and its sunset when deprecated.
+  string version = 7;
+  string component = 8;
+  string state = 9;
+  string stage = 10;
+  optional string sunset = 11;
+  // The interface's ceilings, by name; empty when it publishes none.
+  map<string, uint64> limits = 12;
 }

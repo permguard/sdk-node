@@ -57,6 +57,8 @@ export interface EvaluateRequest {
   evaluations?: Evaluation[];
   options?: EvaluationOptions;
   requestId?: string;
+  /** Asks for a signed response: base64url without padding, 16 to 64 bytes. */
+  requestNonce?: string;
 }
 
 export interface Reason {
@@ -70,6 +72,30 @@ export interface DecisionContext {
   reasonUser?: Reason;
   policies: string[];
   absentInputs: string[];
+  /** How the decision was recorded, when the PDP records evidence. */
+  evidence?: Evidence;
+}
+
+/** Where a recorded decision sits in its host's evidence stream. */
+export interface EvidencePosition {
+  hostId: string;
+  run: string;
+  sequence: string;
+}
+
+/** The evidence record of a decision. */
+export interface Evidence {
+  mode: string;
+  status: string;
+  recordId?: string;
+  position?: EvidencePosition;
+}
+
+/** A signed response: the flattened JWS parts over the decision. */
+export interface Attestation {
+  protected: string;
+  payload: string;
+  signature: string;
 }
 
 export interface Decision {
@@ -80,6 +106,8 @@ export interface Decision {
 
 export interface EvaluateResponse extends Decision {
   evaluations: Decision[];
+  /** Present when the request carried a nonce and the PDP signed the response. */
+  attestation?: Attestation;
 }
 
 export interface Endpoints {
@@ -100,4 +128,18 @@ export interface Configuration {
   endpoints: Endpoints;
   capabilities: string[];
   storeScope: StoreScope;
+  version: string;
+  component: string;
+  state: string;
+  stage: string;
+  sunset?: string;
+  limits: Record<string, number>;
+  responseSigning: ResponseSigning;
+}
+
+/** Whether the PDP signs a response a request asks it to sign. */
+export interface ResponseSigning {
+  state: string;
+  validitySeconds?: number;
+  clockSkewSeconds?: number;
 }

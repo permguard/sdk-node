@@ -91,11 +91,15 @@ A ledger whose manifest declares other profiles is asked with the profile's name
 | `context`         | any other fact the policies read                                        |
 | `partitionInputs` | runtime data for the partitions of the profile, see below               |
 | `requestId`       | your id for the call, given back in the answer                          |
+| `requestNonce`    | asks for a signed response, see below                                   |
 
 ### The answer
 
 A deny is not an error: it is a successful response with `decision === false`.
 Validation, authorization, availability and server failures reject with `Refusal`, with their stable `errorClass` and `code`.
+
+Each decision's `context.evidence` says how the plane recorded it: its `mode`, its `status` and, once recorded, its `recordId` and `position`.
+A request that sets `requestNonce` (base64url without padding, 16 to 64 bytes) asks for a signed response, and the answer carries the plane's `attestation`: the plane signs only for an authenticated caller, and refuses with `unauthenticated` rather than answer unsigned.
 
 ## Partition inputs
 
@@ -206,6 +210,10 @@ See the [Authority Plane](https://docs.permguard.com/how-it-works/authority-plan
 This major version implements `permguard.api.pdp.native.v1`.
 Compatibility is tied to that versioned interface, not to a server minor version.
 
+The contract this release carries is the `pdp.proto` of Permguard `v0.1.33`, the tag [PERMGUARD_CONTRACT](PERMGUARD_CONTRACT) names: CI fails when the copy in `src/proto` differs from it, and runs the tests against a data plane of that release over HTTP and gRPC.
+It covers the decision interface: a request may ask for a signed response with `requestNonce`, and the answer carries the plane's `attestation` and each decision's `context.evidence`; the discovery document carries the version, lifecycle, limits and response signing.
+The temporal interface, `permguard.api.pdp.temporal.v1alpha1`, is not covered by this SDK.
+
 ## Develop
 
 ```bash
@@ -216,7 +224,8 @@ npm test
 npm pack --dry-run
 ```
 
-The protobuf source mirrors the native stateless contract in the Permguard server repository: regenerate the bindings whenever it changes.
+`src/proto/permguard/data/v1/pdp.proto` is the canonical contract of the Permguard release `PERMGUARD_CONTRACT` names; `bash scripts/check-contract.sh src/proto/permguard/data/v1/pdp.proto` checks it, and the bindings are regenerated whenever it changes.
+`bash scripts/e2e-server.sh` starts that release with a ledger the end-to-end tests ask (`E2E_HTTP=http://127.0.0.1:7443 E2E_GRPC=grpc://127.0.0.1:7443 npm run test:e2e`); `E2E_PORT_OFFSET` moves its ports when another server holds them.
 
 ## License
 

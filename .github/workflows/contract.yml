@@ -1,0 +1,45 @@
+# Copyright (c) 2022 Nitro Agility S.r.l.
+# SPDX-License-Identifier: Apache-2.0
+
+# The SDK speaks the contract of the Permguard release PERMGUARD_CONTRACT pins, and works against
+# that release's data plane (BUG-0077). It runs on every push and pull request, not only on a
+# release, so a drift is seen when it is made.
+
+name: Contract
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: The contract is the pinned release's
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: pdp.proto is the one PERMGUARD_CONTRACT names
+        run: bash scripts/check-contract.sh src/proto/permguard/data/v1/pdp.proto
+
+  e2e:
+    name: Against a real data plane
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - name: The pinned release, serving a ledger
+        run: echo "E2E_DIR=$(bash scripts/e2e-server.sh "$RUNNER_TEMP/permguard")" >> "$GITHUB_ENV"
+      - name: Permit, deny, batch and refusals over HTTP and gRPC
+        env:
+          E2E_HTTP: http://127.0.0.1:7443
+          E2E_GRPC: grpc://127.0.0.1:7443
+        run: npm run test:e2e
+      - name: The server's log
+        if: failure()
+        run: tail -100 "$RUNNER_TEMP/permguard/server.log"

@@ -5,6 +5,18 @@
 // Copyright (c) 2022 Nitro Agility S.r.l.
 // SPDX-License-Identifier: Apache-2.0
 //
+//
+// The `permguard.pdp.v1` interface over gRPC.
+//
+// Permguard's native policy decision interface, expressed in protobuf. It is
+// field-for-field the same request and the same answer the HTTP binding serves,
+// so a deployment chooses a transport without choosing semantics — and the
+// discovery below describes the same interface the HTTP document does.
+//
+// Free-form parts of the contract (`properties`, `context`, a partition's own
+// input) ride as `google.protobuf.Struct` / `Value`: they are policy data, and
+// a schema for them belongs to the policy language, not to this file.
+//
 import { ServiceType } from "@protobuf-ts/runtime-rpc";
 import type { BinaryWriteOptions } from "@protobuf-ts/runtime";
 import type { IBinaryWriter } from "@protobuf-ts/runtime";
@@ -15,9 +27,12 @@ import { UnknownFieldHandler } from "@protobuf-ts/runtime";
 import type { PartialMessage } from "@protobuf-ts/runtime";
 import { reflectionMergePartial } from "@protobuf-ts/runtime";
 import { MessageType } from "@protobuf-ts/runtime";
+import { BoolValue } from "../../../google/protobuf/wrappers";
 import { Value } from "../../../google/protobuf/struct";
 import { Struct } from "../../../google/protobuf/struct";
 /**
+ * Whom a decision is about, or what it targets.
+ *
  * @generated from protobuf message permguard.data.v1.Entity
  */
 export interface Entity {
@@ -35,6 +50,8 @@ export interface Entity {
     properties?: Struct;
 }
 /**
+ * The operation attempted.
+ *
  * @generated from protobuf message permguard.data.v1.Action
  */
 export interface Action {
@@ -48,6 +65,15 @@ export interface Action {
     properties?: Struct;
 }
 /**
+ * One partition's own input, addressed to it by name.
+ *
+ * `type` is a registered partition input contract — `permguard.cedar.entities.v1`
+ * carries an array of Cedar entities, `permguard.rego.data.v1` a JSON object
+ * that arrives at `input.partition`. It is an *assertion*: the ledger's manifest
+ * decides what each partition accepts, and a `type` that disagrees with it is
+ * refused rather than obeyed. A caller cannot pick the parser for data it also
+ * supplies.
+ *
  * @generated from protobuf message permguard.data.v1.PartitionInput
  */
 export interface PartitionInput {
@@ -61,8 +87,20 @@ export interface PartitionInput {
     data?: Value;
 }
 /**
- * Presence is significant inside an evaluation: absent inherits the request
- * inputs, while a present empty map replaces them with no inputs.
+ * The inputs of one boxcarred evaluation, wrapped so that **stating none** and
+ * **stating nothing** are different messages.
+ *
+ * A proto3 `map` cannot tell an absent field from an empty one: both arrive as
+ * zero entries. For a top-level request that costs nothing — no inputs is no
+ * inputs — but inside an evaluation the two mean opposite things. An evaluation
+ * that states `{}` replaces the request's defaults with nothing; one that states
+ * no inputs at all inherits them. Read as a plain map, `{}` inherited, so the
+ * same request was decided against the defaults over gRPC and against nothing
+ * over HTTP.
+ *
+ * A message field has explicit presence, so the wrapper *is* the distinction —
+ * rather than a parallel `bool` beside the map, which can disagree with it and
+ * then needs a rule for which one wins.
  *
  * @generated from protobuf message permguard.data.v1.PartitionInputs
  */
@@ -75,6 +113,8 @@ export interface PartitionInputs {
     };
 }
 /**
+ * One entry of a boxcarred request: whatever it sets overrides the defaults.
+ *
  * @generated from protobuf message permguard.data.v1.Evaluation
  */
 export interface Evaluation {
@@ -99,6 +139,10 @@ export interface Evaluation {
      */
     requestId: string;
     /**
+     * Present — even with no entries — this replaces the request's defaults
+     * whole, exactly as `subject` and `context` do. Never merged key by key.
+     * Absent, the evaluation inherits them.
+     *
      * @generated from protobuf field: permguard.data.v1.PartitionInputs partition_inputs = 8;
      */
     partitionInputs?: PartitionInputs;
@@ -108,6 +152,10 @@ export interface Evaluation {
  */
 export interface EvaluateRequest {
     /**
+     * Which policy store to decide against. Required, both of them: there is no
+     * default, and deciding against the wrong store is the one failure nobody
+     * can debug.
+     *
      * @generated from protobuf field: string zone = 1;
      */
     zone: string;
@@ -116,10 +164,14 @@ export interface EvaluateRequest {
      */
     ledger: string;
     /**
+     * Which of the ledger's profiles. `default` when empty.
+     *
      * @generated from protobuf field: string profile = 3;
      */
     profile: string;
     /**
+     * The defaults every evaluation inherits.
+     *
      * @generated from protobuf field: permguard.data.v1.Entity subject = 4;
      */
     subject?: Entity;
@@ -136,6 +188,8 @@ export interface EvaluateRequest {
      */
     context?: Struct;
     /**
+     * Extensions.
+     *
      * @generated from protobuf field: permguard.data.v1.Entity principal = 8;
      */
     principal?: Entity;
@@ -152,13 +206,33 @@ export interface EvaluateRequest {
      */
     requestId: string;
     /**
+     * What each partition of the profile is given, by the partition's own name.
+     * The only way a request supplies runtime data: there is no addressing by
+     * language, because two partitions of one runtime hold different worlds.
+     *
+     * A bare map here, and a `PartitionInputs` inside an evaluation, because the
+     * two fields genuinely differ: at the top level "absent" and "empty" both
+     * mean *no defaults*, and inside an evaluation they mean *inherit* and
+     * *replace with nothing*. The wire mirrors the contract rather than
+     * flattening it into one shape that is wrong in one of the two places.
+     *
      * @generated from protobuf field: map<string, permguard.data.v1.PartitionInput> partition_inputs = 13;
      */
     partitionInputs: {
         [key: string]: PartitionInput;
     };
+    /**
+     * Asks for a signed response: base64url without padding, 16 to 64 bytes.
+     * Empty asks for none. A plane that cannot sign refuses rather than answer
+     * unsigned.
+     *
+     * @generated from protobuf field: string request_nonce = 14;
+     */
+    requestNonce: string;
 }
 /**
+ * The two audiences of one reason.
+ *
  * @generated from protobuf message permguard.data.v1.Reason
  */
 export interface Reason {
@@ -176,6 +250,8 @@ export interface Reason {
  */
 export interface DecisionContext {
     /**
+     * This decision's own identifier, matching its audit record.
+     *
      * @generated from protobuf field: string id = 1;
      */
     id: string;
@@ -188,13 +264,82 @@ export interface DecisionContext {
      */
     reasonUser?: Reason;
     /**
+     * The policies that decided it, by identity.
+     *
      * @generated from protobuf field: repeated string policies = 4;
      */
     policies: string[];
     /**
+     * The profile's partitions that declare an input and were addressed with
+     * none: they decided against the type's empty input. Empty when every
+     * declared input arrived.
+     *
      * @generated from protobuf field: repeated string absent_inputs = 5;
      */
     absentInputs: string[];
+    /**
+     * What became of this decision's record. Absent on a batch's own context.
+     *
+     * @generated from protobuf field: permguard.data.v1.Evidence evidence = 6;
+     */
+    evidence?: Evidence;
+}
+/**
+ * The evidence of one decision: the same closed object the REST answer
+ * carries, its values spelled as there.
+ *
+ * @generated from protobuf message permguard.data.v1.Evidence
+ */
+export interface Evidence {
+    /**
+     * `required`, `best_effort` or `disabled`.
+     *
+     * @generated from protobuf field: string mode = 1;
+     */
+    mode: string;
+    /**
+     * `durable`, `sampled_out`, `dropped` or `disabled`.
+     *
+     * @generated from protobuf field: string status = 2;
+     */
+    status: string;
+    /**
+     * The record's id, present exactly when the status is `durable`.
+     *
+     * @generated from protobuf field: optional string record_id = 3;
+     */
+    recordId?: string;
+    /**
+     * Where the record sits, present exactly when the status is `durable`.
+     *
+     * @generated from protobuf field: permguard.data.v1.EvidencePosition position = 4;
+     */
+    position?: EvidencePosition;
+}
+/**
+ * Where a durable record sits.
+ *
+ * @generated from protobuf message permguard.data.v1.EvidencePosition
+ */
+export interface EvidencePosition {
+    /**
+     * The Host's id, a lowercase hyphenated UUID.
+     *
+     * @generated from protobuf field: string host_id = 1;
+     */
+    hostId: string;
+    /**
+     * The run, 32 lowercase hex digits.
+     *
+     * @generated from protobuf field: string run = 2;
+     */
+    run: string;
+    /**
+     * The sequence in the run, unsigned decimal text.
+     *
+     * @generated from protobuf field: string sequence = 3;
+     */
+    sequence: string;
 }
 /**
  * @generated from protobuf message permguard.data.v1.Decision
@@ -230,9 +375,38 @@ export interface EvaluateResponse {
      */
     context?: DecisionContext;
     /**
+     * Present exactly when the request carried evaluations, in the same order.
+     *
      * @generated from protobuf field: repeated permguard.data.v1.Decision evaluations = 4;
      */
     evaluations: Decision[];
+    /**
+     * The signed response, present exactly when `request_nonce` asked for one.
+     *
+     * @generated from protobuf field: permguard.data.v1.Attestation attestation = 5;
+     */
+    attestation?: Attestation;
+}
+/**
+ * A flattened JWS of `permguard.decision.response.v1`: the three base64url
+ * values the REST answer carries as `attestation`, verifying to the same
+ * payload bytes.
+ *
+ * @generated from protobuf message permguard.data.v1.Attestation
+ */
+export interface Attestation {
+    /**
+     * @generated from protobuf field: string protected = 1;
+     */
+    protected: string;
+    /**
+     * @generated from protobuf field: string payload = 2;
+     */
+    payload: string;
+    /**
+     * @generated from protobuf field: string signature = 3;
+     */
+    signature: string;
 }
 /**
  * @generated from protobuf message permguard.data.v1.GetConfigurationRequest
@@ -240,6 +414,8 @@ export interface EvaluateResponse {
 export interface GetConfigurationRequest {
 }
 /**
+ * Where one question is asked, and where many are.
+ *
  * @generated from protobuf message permguard.data.v1.Endpoints
  */
 export interface Endpoints {
@@ -253,10 +429,14 @@ export interface Endpoints {
     evaluations: string;
 }
 /**
+ * Which fields name the policy store, and whether a caller must state them.
+ *
  * @generated from protobuf message permguard.data.v1.StoreScope
  */
 export interface StoreScope {
     /**
+     * Where the store is named: `payload` — never the URL.
+     *
      * @generated from protobuf field: string in = 1;
      */
     in: string;
@@ -274,14 +454,21 @@ export interface StoreScope {
     profile: string;
 }
 /**
+ * What this plane publishes about the interface it serves. Field for field the
+ * JSON document, so a caller learns the same thing over either transport.
+ *
  * @generated from protobuf message permguard.data.v1.GetConfigurationResponse
  */
 export interface GetConfigurationResponse {
     /**
+     * The contract and its version: `permguard.pdp.v1`.
+     *
      * @generated from protobuf field: string interface = 1;
      */
     interface: string;
     /**
+     * This PDP's identifier.
+     *
      * @generated from protobuf field: string pdp = 2;
      */
     pdp: string;
@@ -290,6 +477,8 @@ export interface GetConfigurationResponse {
      */
     endpoints?: Endpoints;
     /**
+     * Every entry is implemented and tested here. A capability is a promise.
+     *
      * @generated from protobuf field: repeated string capabilities = 4;
      */
     capabilities: string[];
@@ -297,8 +486,518 @@ export interface GetConfigurationResponse {
      * @generated from protobuf field: permguard.data.v1.StoreScope store_scope = 5;
      */
     storeScope?: StoreScope;
+    /**
+     * The common header (WP-7.4a): the product version `/version` publishes, the serving
+     * component, its lifecycle phase, the interface's stage, and its sunset when deprecated.
+     *
+     * @generated from protobuf field: string version = 6;
+     */
+    version: string;
+    /**
+     * @generated from protobuf field: string component = 7;
+     */
+    component: string;
+    /**
+     * @generated from protobuf field: string state = 8;
+     */
+    state: string;
+    /**
+     * @generated from protobuf field: string stage = 9;
+     */
+    stage: string;
+    /**
+     * @generated from protobuf field: optional string sunset = 10;
+     */
+    sunset?: string;
+    /**
+     * The interface's ceilings, by name; empty when it publishes none.
+     *
+     * @generated from protobuf field: map<string, uint64> limits = 11;
+     */
+    limits: {
+        [key: string]: bigint;
+    };
+    /**
+     * Whether a request may ask for a signed response.
+     *
+     * @generated from protobuf field: permguard.data.v1.ResponseSigning response_signing = 12;
+     */
+    responseSigning?: ResponseSigning;
 }
 /**
+ * `optional` with the lifetime the server emits and the skew a verifier
+ * allows, or `disabled`, whose two numbers are absent from the JSON document.
+ *
+ * @generated from protobuf message permguard.data.v1.ResponseSigning
+ */
+export interface ResponseSigning {
+    /**
+     * @generated from protobuf field: string state = 1;
+     */
+    state: string;
+    /**
+     * @generated from protobuf field: uint32 validity_seconds = 2;
+     */
+    validitySeconds: number;
+    /**
+     * @generated from protobuf field: uint32 clock_skew_seconds = 3;
+     */
+    clockSkewSeconds: number;
+}
+/**
+ * @generated from protobuf message permguard.data.v1.GetTemporalSignersRequest
+ */
+export interface GetTemporalSignersRequest {
+    /**
+     * @generated from protobuf field: string zone = 1;
+     */
+    zone: string;
+    /**
+     * @generated from protobuf field: string ledger = 2;
+     */
+    ledger: string;
+    /**
+     * Inclusive offset range; leave both zero for the whole history.
+     *
+     * @generated from protobuf field: uint64 from_seq = 3;
+     */
+    fromSeq: bigint;
+    /**
+     * @generated from protobuf field: uint64 until_seq = 4;
+     */
+    untilSeq: bigint;
+}
+/**
+ * One stretch of the journal and the key that signed it.
+ *
+ * @generated from protobuf message permguard.data.v1.TemporalSignerSpan
+ */
+export interface TemporalSignerSpan {
+    /**
+     * @generated from protobuf field: uint64 from_seq = 1;
+     */
+    fromSeq: bigint;
+    /**
+     * @generated from protobuf field: string kid = 2;
+     */
+    kid: string;
+    /**
+     * The public key itself, as this plane publishes it: a JWK, as JSON.
+     *
+     * @generated from protobuf field: bytes jwk = 3;
+     */
+    jwk: Uint8Array;
+}
+/**
+ * @generated from protobuf message permguard.data.v1.GetTemporalSignersResponse
+ */
+export interface GetTemporalSignersResponse {
+    /**
+     * The producer identity this plane writes its streams under.
+     *
+     * @generated from protobuf field: string producer_class = 1;
+     */
+    producerClass: string;
+    /**
+     * @generated from protobuf field: string producer = 2;
+     */
+    producer: string;
+    /**
+     * @generated from protobuf field: string instance = 3;
+     */
+    instance: string;
+    /**
+     * This plane's own watermarks: durable, then signed, then acknowledged.
+     *
+     * @generated from protobuf field: uint64 durable_through = 4;
+     */
+    durableThrough: bigint;
+    /**
+     * @generated from protobuf field: uint64 signed_through = 5;
+     */
+    signedThrough: bigint;
+    /**
+     * @generated from protobuf field: uint64 acked_through = 6;
+     */
+    ackedThrough: bigint;
+    /**
+     * @generated from protobuf field: repeated permguard.data.v1.TemporalSignerSpan spans = 7;
+     */
+    spans: TemporalSignerSpan[];
+}
+/**
+ * Which policy store an occurrence belongs to.
+ *
+ * In the payload, never the URL — the same rule the stateless interface
+ * follows, and for the same reason: a store named in a path is a store a proxy
+ * can rewrite.
+ *
+ * @generated from protobuf message permguard.data.v1.EventStore
+ */
+export interface EventStore {
+    /**
+     * @generated from protobuf field: string zone = 1;
+     */
+    zone: string;
+    /**
+     * @generated from protobuf field: string ledger = 2;
+     */
+    ledger: string;
+    /**
+     * Which of the ledger's profiles. `default` when empty, and it must be a
+     * profile of this interface's type.
+     *
+     * @generated from protobuf field: string profile = 3;
+     */
+    profile: string;
+}
+/**
+ * The typed occurrence: which registered contract it is, and its payload.
+ *
+ * `type` is an *assertion*, checked against what the addressed partitions
+ * accept — never a selector. The payload rides as `Struct` because its shape is
+ * the event contract's, and a schema for it belongs to that contract rather
+ * than to this file: a second registered contract is a registry entry with its
+ * own validator, not a new message here.
+ *
+ * @generated from protobuf message permguard.data.v1.TypedEvent
+ */
+export interface TypedEvent {
+    /**
+     * @generated from protobuf field: string type = 1;
+     */
+    type: string;
+    /**
+     * @generated from protobuf field: google.protobuf.Struct data = 2;
+     */
+    data?: Struct;
+}
+/**
+ * @generated from protobuf message permguard.data.v1.SubmitEventRequest
+ */
+export interface SubmitEventRequest {
+    /**
+     * @generated from protobuf field: permguard.data.v1.EventStore store = 1;
+     */
+    store?: EventStore;
+    /**
+     * @generated from protobuf field: permguard.data.v1.TypedEvent event = 2;
+     */
+    event?: TypedEvent;
+}
+/**
+ * Where an occurrence sits in this plane's stream.
+ *
+ * Not a global order: there is no truthful total order across producers. This
+ * says which producer instance wrote it and at which position.
+ *
+ * @generated from protobuf message permguard.data.v1.EventWatermark
+ */
+export interface EventWatermark {
+    /**
+     * @generated from protobuf field: string instance = 1;
+     */
+    instance: string;
+    /**
+     * @generated from protobuf field: uint64 sequence = 2;
+     */
+    sequence: bigint;
+    /**
+     * The derived history key's digest — the index key, never a substitute for
+     * the values, which travel in the signed record.
+     *
+     * @generated from protobuf field: string history = 3;
+     */
+    history: string;
+}
+/**
+ * @generated from protobuf message permguard.data.v1.SubmitEventResponse
+ */
+export interface SubmitEventResponse {
+    /**
+     * @generated from protobuf field: permguard.data.v1.SubmitOutcome outcome = 1;
+     */
+    outcome: SubmitOutcome;
+    /**
+     * @generated from protobuf field: string event_id = 2;
+     */
+    eventId: string;
+    /**
+     * @generated from protobuf field: permguard.data.v1.EventWatermark watermark = 3;
+     */
+    watermark?: EventWatermark;
+    /**
+     * Set exactly when `outcome` is `SUBMIT_OUTCOME_DECIDED`. A history-only kind
+     * leaves it unset rather than sending `false`: a fabricated verdict a caller
+     * cannot tell from a decided one is the most dangerous thing this interface
+     * could return, and proto3's default for a bare `bool` is exactly that.
+     *
+     * @generated from protobuf field: google.protobuf.BoolValue decision = 4;
+     */
+    decision?: BoolValue;
+    /**
+     * The decision's own identifier, matching its audit record.
+     *
+     * @generated from protobuf field: string decision_id = 5;
+     */
+    decisionId: string;
+    /**
+     * The policies that decided it, by identity.
+     *
+     * @generated from protobuf field: repeated string policies = 6;
+     */
+    policies: string[];
+    /**
+     * @generated from protobuf field: permguard.data.v1.Reason reason = 7;
+     */
+    reason?: Reason;
+    /**
+     * Which history this decision ranged over, and how fresh it was. Always
+     * present, including for a plane that reads only its own events: an auditor
+     * reproducing a decision needs to know what was visible, and "local" is an
+     * answer to that question rather than the absence of one.
+     *
+     * @generated from protobuf field: permguard.data.v1.DecisionHistory history = 8;
+     */
+    history?: DecisionHistory;
+    /**
+     * One answer per addressed partition, in profile order. Empty for a
+     * history-only occurrence; the aggregate decision above remains authoritative.
+     *
+     * @generated from protobuf field: repeated permguard.data.v1.TemporalPartitionEvaluation evaluations = 9;
+     */
+    evaluations: TemporalPartitionEvaluation[];
+}
+/**
+ * @generated from protobuf message permguard.data.v1.TemporalPartitionEvaluation
+ */
+export interface TemporalPartitionEvaluation {
+    /**
+     * @generated from protobuf field: string partition = 1;
+     */
+    partition: string;
+    /**
+     * @generated from protobuf field: bool decision = 2;
+     */
+    decision: boolean;
+    /**
+     * @generated from protobuf field: repeated string policies = 3;
+     */
+    policies: string[];
+    /**
+     * @generated from protobuf field: permguard.data.v1.Reason reason = 4;
+     */
+    reason?: Reason;
+}
+/**
+ * Which history a decision ranged over.
+ *
+ * Deliberately not called consistency without qualification: replication is
+ * asynchronous, so a shared mode ranges over what had *arrived*, and the
+ * watermark says exactly which events those were.
+ *
+ * @generated from protobuf message permguard.data.v1.DecisionHistory
+ */
+export interface DecisionHistory {
+    /**
+     * `local`, `shared-eventual` or `shared-bounded`.
+     *
+     * @generated from protobuf field: string mode = 1;
+     */
+    mode: string;
+    /**
+     * The opaque import watermark this decision saw, for a shared mode. Echo it,
+     * never parse it.
+     *
+     * @generated from protobuf field: string watermark = 2;
+     */
+    watermark: string;
+    /**
+     * How long ago the imported history was last refreshed, in seconds. Absent
+     * for a local history; zero is a real value for a just-refreshed shared one.
+     *
+     * @generated from protobuf field: optional uint64 staleness_seconds = 3;
+     */
+    stalenessSeconds?: bigint;
+    /**
+     * Recorded holes the importer could not recover from retention.
+     *
+     * @generated from protobuf field: uint64 gaps = 4;
+     */
+    gaps: bigint;
+    /**
+     * The exact vector frontier a shared decision observed (WP-6.4a); empty for
+     * a local history.
+     *
+     * @generated from protobuf field: repeated permguard.data.v1.FrontierRun frontier = 5;
+     */
+    frontier: FrontierRun[];
+    /**
+     * The revision of the origin set defining the required origins, in hex.
+     *
+     * @generated from protobuf field: optional string origin_set_revision = 6;
+     */
+    originSetRevision?: string;
+    /**
+     * The freshness bound in force, in seconds.
+     *
+     * @generated from protobuf field: optional uint64 max_staleness_seconds = 7;
+     */
+    maxStalenessSeconds?: bigint;
+    /**
+     * The required origins a `shared-eventual` decision is degraded by.
+     *
+     * @generated from protobuf field: repeated string degraded = 8;
+     */
+    degraded: string[];
+    /**
+     * The time the runtime's windows range over: `occurred_at`.
+     *
+     * @generated from protobuf field: string time = 9;
+     */
+    time: string;
+    /**
+     * How many logical occurrences of the history a digest conflict
+     * quarantined (WP-6.4b); zero when none.
+     *
+     * @generated from protobuf field: uint64 quarantined = 10;
+     */
+    quarantined: bigint;
+}
+/**
+ * One imported run of one origin, as a decision held it.
+ *
+ * @generated from protobuf message permguard.data.v1.FrontierRun
+ */
+export interface FrontierRun {
+    /**
+     * The origin Host and its run, in hex.
+     *
+     * @generated from protobuf field: string origin = 1;
+     */
+    origin: string;
+    /**
+     * @generated from protobuf field: string run = 2;
+     */
+    run: string;
+    /**
+     * The last sequence held, contiguously, and the oldest still retained.
+     *
+     * @generated from protobuf field: uint64 covered_through = 3;
+     */
+    coveredThrough: bigint;
+    /**
+     * @generated from protobuf field: uint64 low_watermark = 4;
+     */
+    lowWatermark: bigint;
+    /**
+     * The holes recorded in the run.
+     *
+     * @generated from protobuf field: repeated permguard.data.v1.FrontierGap gaps = 5;
+     */
+    gaps: FrontierGap[];
+}
+/**
+ * One recorded hole: the first sequence missing and, when known, the last.
+ *
+ * @generated from protobuf message permguard.data.v1.FrontierGap
+ */
+export interface FrontierGap {
+    /**
+     * @generated from protobuf field: uint64 from = 1;
+     */
+    from: bigint;
+    /**
+     * @generated from protobuf field: optional uint64 through = 2;
+     */
+    through?: bigint;
+}
+/**
+ * @generated from protobuf message permguard.data.v1.GetTemporalConfigurationRequest
+ */
+export interface GetTemporalConfigurationRequest {
+}
+/**
+ * Where an occurrence is submitted.
+ *
+ * @generated from protobuf message permguard.data.v1.TemporalEndpoints
+ */
+export interface TemporalEndpoints {
+    /**
+     * @generated from protobuf field: string submission = 1;
+     */
+    submission: string;
+}
+/**
+ * What this plane publishes about the temporal interface. Field for field the
+ * JSON document, so a caller learns the same thing over either transport.
+ *
+ * @generated from protobuf message permguard.data.v1.GetTemporalConfigurationResponse
+ */
+export interface GetTemporalConfigurationResponse {
+    /**
+     * The contract and its version: `permguard.api.pdp.temporal.v1alpha1`.
+     *
+     * @generated from protobuf field: string interface = 1;
+     */
+    interface: string;
+    /**
+     * @generated from protobuf field: string pdp = 2;
+     */
+    pdp: string;
+    /**
+     * @generated from protobuf field: permguard.data.v1.TemporalEndpoints endpoints = 3;
+     */
+    endpoints?: TemporalEndpoints;
+    /**
+     * The registered occurrence contracts this plane accepts.
+     *
+     * @generated from protobuf field: repeated string event_types = 4;
+     */
+    eventTypes: string[];
+    /**
+     * @generated from protobuf field: repeated string capabilities = 5;
+     */
+    capabilities: string[];
+    /**
+     * @generated from protobuf field: permguard.data.v1.StoreScope store_scope = 6;
+     */
+    storeScope?: StoreScope;
+    /**
+     * The common header (WP-7.4a): the product version `/version` publishes, the serving
+     * component, its lifecycle phase, the interface's stage, and its sunset when deprecated.
+     *
+     * @generated from protobuf field: string version = 7;
+     */
+    version: string;
+    /**
+     * @generated from protobuf field: string component = 8;
+     */
+    component: string;
+    /**
+     * @generated from protobuf field: string state = 9;
+     */
+    state: string;
+    /**
+     * @generated from protobuf field: string stage = 10;
+     */
+    stage: string;
+    /**
+     * @generated from protobuf field: optional string sunset = 11;
+     */
+    sunset?: string;
+    /**
+     * The interface's ceilings, by name; empty when it publishes none.
+     *
+     * @generated from protobuf field: map<string, uint64> limits = 12;
+     */
+    limits: {
+        [key: string]: bigint;
+    };
+}
+/**
+ * How a batch resolves.
+ *
  * @generated from protobuf enum permguard.data.v1.EvaluationsSemantic
  */
 export enum EvaluationsSemantic {
@@ -318,6 +1017,37 @@ export enum EvaluationsSemantic {
      * @generated from protobuf enum value: EVALUATIONS_SEMANTIC_PERMIT_ON_FIRST_PERMIT = 3;
      */
     PERMIT_ON_FIRST_PERMIT = 3
+}
+/**
+ * What a submission did.
+ *
+ * @generated from protobuf enum permguard.data.v1.SubmitOutcome
+ */
+export enum SubmitOutcome {
+    /**
+     * @generated from protobuf enum value: SUBMIT_OUTCOME_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+    /**
+     * A decision kind: `decision` carries the verdict.
+     *
+     * @generated from protobuf enum value: SUBMIT_OUTCOME_DECIDED = 1;
+     */
+    DECIDED = 1,
+    /**
+     * A history-only kind: durably recorded and observed, and there is no verdict.
+     *
+     * @generated from protobuf enum value: SUBMIT_OUTCOME_ACCEPTED = 2;
+     */
+    ACCEPTED = 2,
+    /**
+     * A decision kind whose profile result is indeterminate: a partition could
+     * not evaluate the occurrence and no policy denied it. The occurrence is
+     * durable and receipted; `decision` is absent.
+     *
+     * @generated from protobuf enum value: SUBMIT_OUTCOME_INDETERMINATE = 3;
+     */
+    INDETERMINATE = 3
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class Entity$Type extends MessageType<Entity> {
@@ -653,7 +1383,8 @@ class EvaluateRequest$Type extends MessageType<EvaluateRequest> {
             { no: 10, name: "evaluations", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => Evaluation },
             { no: 11, name: "evaluations_semantic", kind: "enum", T: () => ["permguard.data.v1.EvaluationsSemantic", EvaluationsSemantic, "EVALUATIONS_SEMANTIC_"] },
             { no: 12, name: "request_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
-            { no: 13, name: "partition_inputs", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "message", T: () => PartitionInput } }
+            { no: 13, name: "partition_inputs", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "message", T: () => PartitionInput } },
+            { no: 14, name: "request_nonce", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
         ]);
     }
     create(value?: PartialMessage<EvaluateRequest>): EvaluateRequest {
@@ -665,6 +1396,7 @@ class EvaluateRequest$Type extends MessageType<EvaluateRequest> {
         message.evaluationsSemantic = 0;
         message.requestId = "";
         message.partitionInputs = {};
+        message.requestNonce = "";
         if (value !== undefined)
             reflectionMergePartial<EvaluateRequest>(this, message, value);
         return message;
@@ -709,6 +1441,9 @@ class EvaluateRequest$Type extends MessageType<EvaluateRequest> {
                     break;
                 case /* map<string, permguard.data.v1.PartitionInput> partition_inputs */ 13:
                     this.binaryReadMap13(message.partitionInputs, reader, options);
+                    break;
+                case /* string request_nonce */ 14:
+                    message.requestNonce = reader.string();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -778,6 +1513,9 @@ class EvaluateRequest$Type extends MessageType<EvaluateRequest> {
             PartitionInput.internalBinaryWrite(message.partitionInputs[k], writer, options);
             writer.join().join();
         }
+        /* string request_nonce = 14; */
+        if (message.requestNonce !== "")
+            writer.tag(14, WireType.LengthDelimited).string(message.requestNonce);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -851,7 +1589,8 @@ class DecisionContext$Type extends MessageType<DecisionContext> {
             { no: 2, name: "reason_admin", kind: "message", T: () => Reason },
             { no: 3, name: "reason_user", kind: "message", T: () => Reason },
             { no: 4, name: "policies", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
-            { no: 5, name: "absent_inputs", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ }
+            { no: 5, name: "absent_inputs", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 6, name: "evidence", kind: "message", T: () => Evidence }
         ]);
     }
     create(value?: PartialMessage<DecisionContext>): DecisionContext {
@@ -883,6 +1622,9 @@ class DecisionContext$Type extends MessageType<DecisionContext> {
                 case /* repeated string absent_inputs */ 5:
                     message.absentInputs.push(reader.string());
                     break;
+                case /* permguard.data.v1.Evidence evidence */ 6:
+                    message.evidence = Evidence.internalBinaryRead(reader, reader.uint32(), options, message.evidence);
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -910,6 +1652,9 @@ class DecisionContext$Type extends MessageType<DecisionContext> {
         /* repeated string absent_inputs = 5; */
         for (let i = 0; i < message.absentInputs.length; i++)
             writer.tag(5, WireType.LengthDelimited).string(message.absentInputs[i]);
+        /* permguard.data.v1.Evidence evidence = 6; */
+        if (message.evidence)
+            Evidence.internalBinaryWrite(message.evidence, writer.tag(6, WireType.LengthDelimited).fork(), options).join();
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -920,6 +1665,138 @@ class DecisionContext$Type extends MessageType<DecisionContext> {
  * @generated MessageType for protobuf message permguard.data.v1.DecisionContext
  */
 export const DecisionContext = new DecisionContext$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class Evidence$Type extends MessageType<Evidence> {
+    constructor() {
+        super("permguard.data.v1.Evidence", [
+            { no: 1, name: "mode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "status", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "record_id", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 4, name: "position", kind: "message", T: () => EvidencePosition }
+        ]);
+    }
+    create(value?: PartialMessage<Evidence>): Evidence {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.mode = "";
+        message.status = "";
+        if (value !== undefined)
+            reflectionMergePartial<Evidence>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: Evidence): Evidence {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string mode */ 1:
+                    message.mode = reader.string();
+                    break;
+                case /* string status */ 2:
+                    message.status = reader.string();
+                    break;
+                case /* optional string record_id */ 3:
+                    message.recordId = reader.string();
+                    break;
+                case /* permguard.data.v1.EvidencePosition position */ 4:
+                    message.position = EvidencePosition.internalBinaryRead(reader, reader.uint32(), options, message.position);
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: Evidence, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string mode = 1; */
+        if (message.mode !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.mode);
+        /* string status = 2; */
+        if (message.status !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.status);
+        /* optional string record_id = 3; */
+        if (message.recordId !== undefined)
+            writer.tag(3, WireType.LengthDelimited).string(message.recordId);
+        /* permguard.data.v1.EvidencePosition position = 4; */
+        if (message.position)
+            EvidencePosition.internalBinaryWrite(message.position, writer.tag(4, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.Evidence
+ */
+export const Evidence = new Evidence$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class EvidencePosition$Type extends MessageType<EvidencePosition> {
+    constructor() {
+        super("permguard.data.v1.EvidencePosition", [
+            { no: 1, name: "host_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "run", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "sequence", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<EvidencePosition>): EvidencePosition {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.hostId = "";
+        message.run = "";
+        message.sequence = "";
+        if (value !== undefined)
+            reflectionMergePartial<EvidencePosition>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: EvidencePosition): EvidencePosition {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string host_id */ 1:
+                    message.hostId = reader.string();
+                    break;
+                case /* string run */ 2:
+                    message.run = reader.string();
+                    break;
+                case /* string sequence */ 3:
+                    message.sequence = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: EvidencePosition, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string host_id = 1; */
+        if (message.hostId !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.hostId);
+        /* string run = 2; */
+        if (message.run !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.run);
+        /* string sequence = 3; */
+        if (message.sequence !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.sequence);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.EvidencePosition
+ */
+export const EvidencePosition = new EvidencePosition$Type();
 // @generated message type with reflection information, may provide speed optimized methods
 class Decision$Type extends MessageType<Decision> {
     constructor() {
@@ -989,7 +1866,8 @@ class EvaluateResponse$Type extends MessageType<EvaluateResponse> {
             { no: 1, name: "decision", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
             { no: 2, name: "request_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
             { no: 3, name: "context", kind: "message", T: () => DecisionContext },
-            { no: 4, name: "evaluations", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => Decision }
+            { no: 4, name: "evaluations", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => Decision },
+            { no: 5, name: "attestation", kind: "message", T: () => Attestation }
         ]);
     }
     create(value?: PartialMessage<EvaluateResponse>): EvaluateResponse {
@@ -1018,6 +1896,9 @@ class EvaluateResponse$Type extends MessageType<EvaluateResponse> {
                 case /* repeated permguard.data.v1.Decision evaluations */ 4:
                     message.evaluations.push(Decision.internalBinaryRead(reader, reader.uint32(), options));
                     break;
+                case /* permguard.data.v1.Attestation attestation */ 5:
+                    message.attestation = Attestation.internalBinaryRead(reader, reader.uint32(), options, message.attestation);
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -1042,6 +1923,9 @@ class EvaluateResponse$Type extends MessageType<EvaluateResponse> {
         /* repeated permguard.data.v1.Decision evaluations = 4; */
         for (let i = 0; i < message.evaluations.length; i++)
             Decision.internalBinaryWrite(message.evaluations[i], writer.tag(4, WireType.LengthDelimited).fork(), options).join();
+        /* permguard.data.v1.Attestation attestation = 5; */
+        if (message.attestation)
+            Attestation.internalBinaryWrite(message.attestation, writer.tag(5, WireType.LengthDelimited).fork(), options).join();
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -1052,6 +1936,69 @@ class EvaluateResponse$Type extends MessageType<EvaluateResponse> {
  * @generated MessageType for protobuf message permguard.data.v1.EvaluateResponse
  */
 export const EvaluateResponse = new EvaluateResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class Attestation$Type extends MessageType<Attestation> {
+    constructor() {
+        super("permguard.data.v1.Attestation", [
+            { no: 1, name: "protected", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "payload", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "signature", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<Attestation>): Attestation {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.protected = "";
+        message.payload = "";
+        message.signature = "";
+        if (value !== undefined)
+            reflectionMergePartial<Attestation>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: Attestation): Attestation {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string protected */ 1:
+                    message.protected = reader.string();
+                    break;
+                case /* string payload */ 2:
+                    message.payload = reader.string();
+                    break;
+                case /* string signature */ 3:
+                    message.signature = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: Attestation, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string protected = 1; */
+        if (message.protected !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.protected);
+        /* string payload = 2; */
+        if (message.payload !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.payload);
+        /* string signature = 3; */
+        if (message.signature !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.signature);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.Attestation
+ */
+export const Attestation = new Attestation$Type();
 // @generated message type with reflection information, may provide speed optimized methods
 class GetConfigurationRequest$Type extends MessageType<GetConfigurationRequest> {
     constructor() {
@@ -1211,7 +2158,14 @@ class GetConfigurationResponse$Type extends MessageType<GetConfigurationResponse
             { no: 2, name: "pdp", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
             { no: 3, name: "endpoints", kind: "message", T: () => Endpoints },
             { no: 4, name: "capabilities", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
-            { no: 5, name: "store_scope", kind: "message", T: () => StoreScope }
+            { no: 5, name: "store_scope", kind: "message", T: () => StoreScope },
+            { no: 6, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 7, name: "component", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 8, name: "state", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 9, name: "stage", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 10, name: "sunset", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 11, name: "limits", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ } },
+            { no: 12, name: "response_signing", kind: "message", T: () => ResponseSigning }
         ]);
     }
     create(value?: PartialMessage<GetConfigurationResponse>): GetConfigurationResponse {
@@ -1219,6 +2173,11 @@ class GetConfigurationResponse$Type extends MessageType<GetConfigurationResponse
         message.interface = "";
         message.pdp = "";
         message.capabilities = [];
+        message.version = "";
+        message.component = "";
+        message.state = "";
+        message.stage = "";
+        message.limits = {};
         if (value !== undefined)
             reflectionMergePartial<GetConfigurationResponse>(this, message, value);
         return message;
@@ -1243,6 +2202,27 @@ class GetConfigurationResponse$Type extends MessageType<GetConfigurationResponse
                 case /* permguard.data.v1.StoreScope store_scope */ 5:
                     message.storeScope = StoreScope.internalBinaryRead(reader, reader.uint32(), options, message.storeScope);
                     break;
+                case /* string version */ 6:
+                    message.version = reader.string();
+                    break;
+                case /* string component */ 7:
+                    message.component = reader.string();
+                    break;
+                case /* string state */ 8:
+                    message.state = reader.string();
+                    break;
+                case /* string stage */ 9:
+                    message.stage = reader.string();
+                    break;
+                case /* optional string sunset */ 10:
+                    message.sunset = reader.string();
+                    break;
+                case /* map<string, uint64> limits */ 11:
+                    this.binaryReadMap11(message.limits, reader, options);
+                    break;
+                case /* permguard.data.v1.ResponseSigning response_signing */ 12:
+                    message.responseSigning = ResponseSigning.internalBinaryRead(reader, reader.uint32(), options, message.responseSigning);
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -1253,6 +2233,22 @@ class GetConfigurationResponse$Type extends MessageType<GetConfigurationResponse
             }
         }
         return message;
+    }
+    private binaryReadMap11(map: GetConfigurationResponse["limits"], reader: IBinaryReader, options: BinaryReadOptions): void {
+        let len = reader.uint32(), end = reader.pos + len, key: keyof GetConfigurationResponse["limits"] | undefined, val: GetConfigurationResponse["limits"][any] | undefined;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case 1:
+                    key = reader.string();
+                    break;
+                case 2:
+                    val = reader.uint64().toBigInt();
+                    break;
+                default: throw new globalThis.Error("unknown map entry field for field permguard.data.v1.GetConfigurationResponse.limits");
+            }
+        }
+        map[key ?? ""] = val ?? 0n;
     }
     internalBinaryWrite(message: GetConfigurationResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* string interface = 1; */
@@ -1270,6 +2266,27 @@ class GetConfigurationResponse$Type extends MessageType<GetConfigurationResponse
         /* permguard.data.v1.StoreScope store_scope = 5; */
         if (message.storeScope)
             StoreScope.internalBinaryWrite(message.storeScope, writer.tag(5, WireType.LengthDelimited).fork(), options).join();
+        /* string version = 6; */
+        if (message.version !== "")
+            writer.tag(6, WireType.LengthDelimited).string(message.version);
+        /* string component = 7; */
+        if (message.component !== "")
+            writer.tag(7, WireType.LengthDelimited).string(message.component);
+        /* string state = 8; */
+        if (message.state !== "")
+            writer.tag(8, WireType.LengthDelimited).string(message.state);
+        /* string stage = 9; */
+        if (message.stage !== "")
+            writer.tag(9, WireType.LengthDelimited).string(message.stage);
+        /* optional string sunset = 10; */
+        if (message.sunset !== undefined)
+            writer.tag(10, WireType.LengthDelimited).string(message.sunset);
+        /* map<string, uint64> limits = 11; */
+        for (let k of globalThis.Object.keys(message.limits))
+            writer.tag(11, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k).tag(2, WireType.Varint).uint64(message.limits[k]).join();
+        /* permguard.data.v1.ResponseSigning response_signing = 12; */
+        if (message.responseSigning)
+            ResponseSigning.internalBinaryWrite(message.responseSigning, writer.tag(12, WireType.LengthDelimited).fork(), options).join();
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -1280,6 +2297,1177 @@ class GetConfigurationResponse$Type extends MessageType<GetConfigurationResponse
  * @generated MessageType for protobuf message permguard.data.v1.GetConfigurationResponse
  */
 export const GetConfigurationResponse = new GetConfigurationResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class ResponseSigning$Type extends MessageType<ResponseSigning> {
+    constructor() {
+        super("permguard.data.v1.ResponseSigning", [
+            { no: 1, name: "state", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "validity_seconds", kind: "scalar", T: 13 /*ScalarType.UINT32*/ },
+            { no: 3, name: "clock_skew_seconds", kind: "scalar", T: 13 /*ScalarType.UINT32*/ }
+        ]);
+    }
+    create(value?: PartialMessage<ResponseSigning>): ResponseSigning {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.state = "";
+        message.validitySeconds = 0;
+        message.clockSkewSeconds = 0;
+        if (value !== undefined)
+            reflectionMergePartial<ResponseSigning>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: ResponseSigning): ResponseSigning {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string state */ 1:
+                    message.state = reader.string();
+                    break;
+                case /* uint32 validity_seconds */ 2:
+                    message.validitySeconds = reader.uint32();
+                    break;
+                case /* uint32 clock_skew_seconds */ 3:
+                    message.clockSkewSeconds = reader.uint32();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: ResponseSigning, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string state = 1; */
+        if (message.state !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.state);
+        /* uint32 validity_seconds = 2; */
+        if (message.validitySeconds !== 0)
+            writer.tag(2, WireType.Varint).uint32(message.validitySeconds);
+        /* uint32 clock_skew_seconds = 3; */
+        if (message.clockSkewSeconds !== 0)
+            writer.tag(3, WireType.Varint).uint32(message.clockSkewSeconds);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.ResponseSigning
+ */
+export const ResponseSigning = new ResponseSigning$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class GetTemporalSignersRequest$Type extends MessageType<GetTemporalSignersRequest> {
+    constructor() {
+        super("permguard.data.v1.GetTemporalSignersRequest", [
+            { no: 1, name: "zone", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "ledger", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "from_seq", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 4, name: "until_seq", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ }
+        ]);
+    }
+    create(value?: PartialMessage<GetTemporalSignersRequest>): GetTemporalSignersRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.zone = "";
+        message.ledger = "";
+        message.fromSeq = 0n;
+        message.untilSeq = 0n;
+        if (value !== undefined)
+            reflectionMergePartial<GetTemporalSignersRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetTemporalSignersRequest): GetTemporalSignersRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string zone */ 1:
+                    message.zone = reader.string();
+                    break;
+                case /* string ledger */ 2:
+                    message.ledger = reader.string();
+                    break;
+                case /* uint64 from_seq */ 3:
+                    message.fromSeq = reader.uint64().toBigInt();
+                    break;
+                case /* uint64 until_seq */ 4:
+                    message.untilSeq = reader.uint64().toBigInt();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: GetTemporalSignersRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string zone = 1; */
+        if (message.zone !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.zone);
+        /* string ledger = 2; */
+        if (message.ledger !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.ledger);
+        /* uint64 from_seq = 3; */
+        if (message.fromSeq !== 0n)
+            writer.tag(3, WireType.Varint).uint64(message.fromSeq);
+        /* uint64 until_seq = 4; */
+        if (message.untilSeq !== 0n)
+            writer.tag(4, WireType.Varint).uint64(message.untilSeq);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.GetTemporalSignersRequest
+ */
+export const GetTemporalSignersRequest = new GetTemporalSignersRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class TemporalSignerSpan$Type extends MessageType<TemporalSignerSpan> {
+    constructor() {
+        super("permguard.data.v1.TemporalSignerSpan", [
+            { no: 1, name: "from_seq", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 2, name: "kid", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "jwk", kind: "scalar", T: 12 /*ScalarType.BYTES*/ }
+        ]);
+    }
+    create(value?: PartialMessage<TemporalSignerSpan>): TemporalSignerSpan {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.fromSeq = 0n;
+        message.kid = "";
+        message.jwk = new Uint8Array(0);
+        if (value !== undefined)
+            reflectionMergePartial<TemporalSignerSpan>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: TemporalSignerSpan): TemporalSignerSpan {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* uint64 from_seq */ 1:
+                    message.fromSeq = reader.uint64().toBigInt();
+                    break;
+                case /* string kid */ 2:
+                    message.kid = reader.string();
+                    break;
+                case /* bytes jwk */ 3:
+                    message.jwk = reader.bytes();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: TemporalSignerSpan, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* uint64 from_seq = 1; */
+        if (message.fromSeq !== 0n)
+            writer.tag(1, WireType.Varint).uint64(message.fromSeq);
+        /* string kid = 2; */
+        if (message.kid !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.kid);
+        /* bytes jwk = 3; */
+        if (message.jwk.length)
+            writer.tag(3, WireType.LengthDelimited).bytes(message.jwk);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.TemporalSignerSpan
+ */
+export const TemporalSignerSpan = new TemporalSignerSpan$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class GetTemporalSignersResponse$Type extends MessageType<GetTemporalSignersResponse> {
+    constructor() {
+        super("permguard.data.v1.GetTemporalSignersResponse", [
+            { no: 1, name: "producer_class", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "producer", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "instance", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 4, name: "durable_through", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 5, name: "signed_through", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 6, name: "acked_through", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 7, name: "spans", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => TemporalSignerSpan }
+        ]);
+    }
+    create(value?: PartialMessage<GetTemporalSignersResponse>): GetTemporalSignersResponse {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.producerClass = "";
+        message.producer = "";
+        message.instance = "";
+        message.durableThrough = 0n;
+        message.signedThrough = 0n;
+        message.ackedThrough = 0n;
+        message.spans = [];
+        if (value !== undefined)
+            reflectionMergePartial<GetTemporalSignersResponse>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetTemporalSignersResponse): GetTemporalSignersResponse {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string producer_class */ 1:
+                    message.producerClass = reader.string();
+                    break;
+                case /* string producer */ 2:
+                    message.producer = reader.string();
+                    break;
+                case /* string instance */ 3:
+                    message.instance = reader.string();
+                    break;
+                case /* uint64 durable_through */ 4:
+                    message.durableThrough = reader.uint64().toBigInt();
+                    break;
+                case /* uint64 signed_through */ 5:
+                    message.signedThrough = reader.uint64().toBigInt();
+                    break;
+                case /* uint64 acked_through */ 6:
+                    message.ackedThrough = reader.uint64().toBigInt();
+                    break;
+                case /* repeated permguard.data.v1.TemporalSignerSpan spans */ 7:
+                    message.spans.push(TemporalSignerSpan.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: GetTemporalSignersResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string producer_class = 1; */
+        if (message.producerClass !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.producerClass);
+        /* string producer = 2; */
+        if (message.producer !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.producer);
+        /* string instance = 3; */
+        if (message.instance !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.instance);
+        /* uint64 durable_through = 4; */
+        if (message.durableThrough !== 0n)
+            writer.tag(4, WireType.Varint).uint64(message.durableThrough);
+        /* uint64 signed_through = 5; */
+        if (message.signedThrough !== 0n)
+            writer.tag(5, WireType.Varint).uint64(message.signedThrough);
+        /* uint64 acked_through = 6; */
+        if (message.ackedThrough !== 0n)
+            writer.tag(6, WireType.Varint).uint64(message.ackedThrough);
+        /* repeated permguard.data.v1.TemporalSignerSpan spans = 7; */
+        for (let i = 0; i < message.spans.length; i++)
+            TemporalSignerSpan.internalBinaryWrite(message.spans[i], writer.tag(7, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.GetTemporalSignersResponse
+ */
+export const GetTemporalSignersResponse = new GetTemporalSignersResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class EventStore$Type extends MessageType<EventStore> {
+    constructor() {
+        super("permguard.data.v1.EventStore", [
+            { no: 1, name: "zone", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "ledger", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "profile", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<EventStore>): EventStore {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.zone = "";
+        message.ledger = "";
+        message.profile = "";
+        if (value !== undefined)
+            reflectionMergePartial<EventStore>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: EventStore): EventStore {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string zone */ 1:
+                    message.zone = reader.string();
+                    break;
+                case /* string ledger */ 2:
+                    message.ledger = reader.string();
+                    break;
+                case /* string profile */ 3:
+                    message.profile = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: EventStore, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string zone = 1; */
+        if (message.zone !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.zone);
+        /* string ledger = 2; */
+        if (message.ledger !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.ledger);
+        /* string profile = 3; */
+        if (message.profile !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.profile);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.EventStore
+ */
+export const EventStore = new EventStore$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class TypedEvent$Type extends MessageType<TypedEvent> {
+    constructor() {
+        super("permguard.data.v1.TypedEvent", [
+            { no: 1, name: "type", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "data", kind: "message", T: () => Struct }
+        ]);
+    }
+    create(value?: PartialMessage<TypedEvent>): TypedEvent {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.type = "";
+        if (value !== undefined)
+            reflectionMergePartial<TypedEvent>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: TypedEvent): TypedEvent {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string type */ 1:
+                    message.type = reader.string();
+                    break;
+                case /* google.protobuf.Struct data */ 2:
+                    message.data = Struct.internalBinaryRead(reader, reader.uint32(), options, message.data);
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: TypedEvent, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string type = 1; */
+        if (message.type !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.type);
+        /* google.protobuf.Struct data = 2; */
+        if (message.data)
+            Struct.internalBinaryWrite(message.data, writer.tag(2, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.TypedEvent
+ */
+export const TypedEvent = new TypedEvent$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class SubmitEventRequest$Type extends MessageType<SubmitEventRequest> {
+    constructor() {
+        super("permguard.data.v1.SubmitEventRequest", [
+            { no: 1, name: "store", kind: "message", T: () => EventStore },
+            { no: 2, name: "event", kind: "message", T: () => TypedEvent }
+        ]);
+    }
+    create(value?: PartialMessage<SubmitEventRequest>): SubmitEventRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<SubmitEventRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: SubmitEventRequest): SubmitEventRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* permguard.data.v1.EventStore store */ 1:
+                    message.store = EventStore.internalBinaryRead(reader, reader.uint32(), options, message.store);
+                    break;
+                case /* permguard.data.v1.TypedEvent event */ 2:
+                    message.event = TypedEvent.internalBinaryRead(reader, reader.uint32(), options, message.event);
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: SubmitEventRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* permguard.data.v1.EventStore store = 1; */
+        if (message.store)
+            EventStore.internalBinaryWrite(message.store, writer.tag(1, WireType.LengthDelimited).fork(), options).join();
+        /* permguard.data.v1.TypedEvent event = 2; */
+        if (message.event)
+            TypedEvent.internalBinaryWrite(message.event, writer.tag(2, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.SubmitEventRequest
+ */
+export const SubmitEventRequest = new SubmitEventRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class EventWatermark$Type extends MessageType<EventWatermark> {
+    constructor() {
+        super("permguard.data.v1.EventWatermark", [
+            { no: 1, name: "instance", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "sequence", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 3, name: "history", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<EventWatermark>): EventWatermark {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.instance = "";
+        message.sequence = 0n;
+        message.history = "";
+        if (value !== undefined)
+            reflectionMergePartial<EventWatermark>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: EventWatermark): EventWatermark {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string instance */ 1:
+                    message.instance = reader.string();
+                    break;
+                case /* uint64 sequence */ 2:
+                    message.sequence = reader.uint64().toBigInt();
+                    break;
+                case /* string history */ 3:
+                    message.history = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: EventWatermark, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string instance = 1; */
+        if (message.instance !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.instance);
+        /* uint64 sequence = 2; */
+        if (message.sequence !== 0n)
+            writer.tag(2, WireType.Varint).uint64(message.sequence);
+        /* string history = 3; */
+        if (message.history !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.history);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.EventWatermark
+ */
+export const EventWatermark = new EventWatermark$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class SubmitEventResponse$Type extends MessageType<SubmitEventResponse> {
+    constructor() {
+        super("permguard.data.v1.SubmitEventResponse", [
+            { no: 1, name: "outcome", kind: "enum", T: () => ["permguard.data.v1.SubmitOutcome", SubmitOutcome, "SUBMIT_OUTCOME_"] },
+            { no: 2, name: "event_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "watermark", kind: "message", T: () => EventWatermark },
+            { no: 4, name: "decision", kind: "message", T: () => BoolValue },
+            { no: 5, name: "decision_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 6, name: "policies", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 7, name: "reason", kind: "message", T: () => Reason },
+            { no: 8, name: "history", kind: "message", T: () => DecisionHistory },
+            { no: 9, name: "evaluations", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => TemporalPartitionEvaluation }
+        ]);
+    }
+    create(value?: PartialMessage<SubmitEventResponse>): SubmitEventResponse {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.outcome = 0;
+        message.eventId = "";
+        message.decisionId = "";
+        message.policies = [];
+        message.evaluations = [];
+        if (value !== undefined)
+            reflectionMergePartial<SubmitEventResponse>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: SubmitEventResponse): SubmitEventResponse {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* permguard.data.v1.SubmitOutcome outcome */ 1:
+                    message.outcome = reader.int32();
+                    break;
+                case /* string event_id */ 2:
+                    message.eventId = reader.string();
+                    break;
+                case /* permguard.data.v1.EventWatermark watermark */ 3:
+                    message.watermark = EventWatermark.internalBinaryRead(reader, reader.uint32(), options, message.watermark);
+                    break;
+                case /* google.protobuf.BoolValue decision */ 4:
+                    message.decision = BoolValue.internalBinaryRead(reader, reader.uint32(), options, message.decision);
+                    break;
+                case /* string decision_id */ 5:
+                    message.decisionId = reader.string();
+                    break;
+                case /* repeated string policies */ 6:
+                    message.policies.push(reader.string());
+                    break;
+                case /* permguard.data.v1.Reason reason */ 7:
+                    message.reason = Reason.internalBinaryRead(reader, reader.uint32(), options, message.reason);
+                    break;
+                case /* permguard.data.v1.DecisionHistory history */ 8:
+                    message.history = DecisionHistory.internalBinaryRead(reader, reader.uint32(), options, message.history);
+                    break;
+                case /* repeated permguard.data.v1.TemporalPartitionEvaluation evaluations */ 9:
+                    message.evaluations.push(TemporalPartitionEvaluation.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: SubmitEventResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* permguard.data.v1.SubmitOutcome outcome = 1; */
+        if (message.outcome !== 0)
+            writer.tag(1, WireType.Varint).int32(message.outcome);
+        /* string event_id = 2; */
+        if (message.eventId !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.eventId);
+        /* permguard.data.v1.EventWatermark watermark = 3; */
+        if (message.watermark)
+            EventWatermark.internalBinaryWrite(message.watermark, writer.tag(3, WireType.LengthDelimited).fork(), options).join();
+        /* google.protobuf.BoolValue decision = 4; */
+        if (message.decision)
+            BoolValue.internalBinaryWrite(message.decision, writer.tag(4, WireType.LengthDelimited).fork(), options).join();
+        /* string decision_id = 5; */
+        if (message.decisionId !== "")
+            writer.tag(5, WireType.LengthDelimited).string(message.decisionId);
+        /* repeated string policies = 6; */
+        for (let i = 0; i < message.policies.length; i++)
+            writer.tag(6, WireType.LengthDelimited).string(message.policies[i]);
+        /* permguard.data.v1.Reason reason = 7; */
+        if (message.reason)
+            Reason.internalBinaryWrite(message.reason, writer.tag(7, WireType.LengthDelimited).fork(), options).join();
+        /* permguard.data.v1.DecisionHistory history = 8; */
+        if (message.history)
+            DecisionHistory.internalBinaryWrite(message.history, writer.tag(8, WireType.LengthDelimited).fork(), options).join();
+        /* repeated permguard.data.v1.TemporalPartitionEvaluation evaluations = 9; */
+        for (let i = 0; i < message.evaluations.length; i++)
+            TemporalPartitionEvaluation.internalBinaryWrite(message.evaluations[i], writer.tag(9, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.SubmitEventResponse
+ */
+export const SubmitEventResponse = new SubmitEventResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class TemporalPartitionEvaluation$Type extends MessageType<TemporalPartitionEvaluation> {
+    constructor() {
+        super("permguard.data.v1.TemporalPartitionEvaluation", [
+            { no: 1, name: "partition", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "decision", kind: "scalar", T: 8 /*ScalarType.BOOL*/ },
+            { no: 3, name: "policies", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 4, name: "reason", kind: "message", T: () => Reason }
+        ]);
+    }
+    create(value?: PartialMessage<TemporalPartitionEvaluation>): TemporalPartitionEvaluation {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.partition = "";
+        message.decision = false;
+        message.policies = [];
+        if (value !== undefined)
+            reflectionMergePartial<TemporalPartitionEvaluation>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: TemporalPartitionEvaluation): TemporalPartitionEvaluation {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string partition */ 1:
+                    message.partition = reader.string();
+                    break;
+                case /* bool decision */ 2:
+                    message.decision = reader.bool();
+                    break;
+                case /* repeated string policies */ 3:
+                    message.policies.push(reader.string());
+                    break;
+                case /* permguard.data.v1.Reason reason */ 4:
+                    message.reason = Reason.internalBinaryRead(reader, reader.uint32(), options, message.reason);
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: TemporalPartitionEvaluation, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string partition = 1; */
+        if (message.partition !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.partition);
+        /* bool decision = 2; */
+        if (message.decision !== false)
+            writer.tag(2, WireType.Varint).bool(message.decision);
+        /* repeated string policies = 3; */
+        for (let i = 0; i < message.policies.length; i++)
+            writer.tag(3, WireType.LengthDelimited).string(message.policies[i]);
+        /* permguard.data.v1.Reason reason = 4; */
+        if (message.reason)
+            Reason.internalBinaryWrite(message.reason, writer.tag(4, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.TemporalPartitionEvaluation
+ */
+export const TemporalPartitionEvaluation = new TemporalPartitionEvaluation$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class DecisionHistory$Type extends MessageType<DecisionHistory> {
+    constructor() {
+        super("permguard.data.v1.DecisionHistory", [
+            { no: 1, name: "mode", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "watermark", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "staleness_seconds", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 4, name: "gaps", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 5, name: "frontier", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => FrontierRun },
+            { no: 6, name: "origin_set_revision", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 7, name: "max_staleness_seconds", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 8, name: "degraded", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 9, name: "time", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 10, name: "quarantined", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ }
+        ]);
+    }
+    create(value?: PartialMessage<DecisionHistory>): DecisionHistory {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.mode = "";
+        message.watermark = "";
+        message.gaps = 0n;
+        message.frontier = [];
+        message.degraded = [];
+        message.time = "";
+        message.quarantined = 0n;
+        if (value !== undefined)
+            reflectionMergePartial<DecisionHistory>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: DecisionHistory): DecisionHistory {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string mode */ 1:
+                    message.mode = reader.string();
+                    break;
+                case /* string watermark */ 2:
+                    message.watermark = reader.string();
+                    break;
+                case /* optional uint64 staleness_seconds */ 3:
+                    message.stalenessSeconds = reader.uint64().toBigInt();
+                    break;
+                case /* uint64 gaps */ 4:
+                    message.gaps = reader.uint64().toBigInt();
+                    break;
+                case /* repeated permguard.data.v1.FrontierRun frontier */ 5:
+                    message.frontier.push(FrontierRun.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                case /* optional string origin_set_revision */ 6:
+                    message.originSetRevision = reader.string();
+                    break;
+                case /* optional uint64 max_staleness_seconds */ 7:
+                    message.maxStalenessSeconds = reader.uint64().toBigInt();
+                    break;
+                case /* repeated string degraded */ 8:
+                    message.degraded.push(reader.string());
+                    break;
+                case /* string time */ 9:
+                    message.time = reader.string();
+                    break;
+                case /* uint64 quarantined */ 10:
+                    message.quarantined = reader.uint64().toBigInt();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: DecisionHistory, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string mode = 1; */
+        if (message.mode !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.mode);
+        /* string watermark = 2; */
+        if (message.watermark !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.watermark);
+        /* optional uint64 staleness_seconds = 3; */
+        if (message.stalenessSeconds !== undefined)
+            writer.tag(3, WireType.Varint).uint64(message.stalenessSeconds);
+        /* uint64 gaps = 4; */
+        if (message.gaps !== 0n)
+            writer.tag(4, WireType.Varint).uint64(message.gaps);
+        /* repeated permguard.data.v1.FrontierRun frontier = 5; */
+        for (let i = 0; i < message.frontier.length; i++)
+            FrontierRun.internalBinaryWrite(message.frontier[i], writer.tag(5, WireType.LengthDelimited).fork(), options).join();
+        /* optional string origin_set_revision = 6; */
+        if (message.originSetRevision !== undefined)
+            writer.tag(6, WireType.LengthDelimited).string(message.originSetRevision);
+        /* optional uint64 max_staleness_seconds = 7; */
+        if (message.maxStalenessSeconds !== undefined)
+            writer.tag(7, WireType.Varint).uint64(message.maxStalenessSeconds);
+        /* repeated string degraded = 8; */
+        for (let i = 0; i < message.degraded.length; i++)
+            writer.tag(8, WireType.LengthDelimited).string(message.degraded[i]);
+        /* string time = 9; */
+        if (message.time !== "")
+            writer.tag(9, WireType.LengthDelimited).string(message.time);
+        /* uint64 quarantined = 10; */
+        if (message.quarantined !== 0n)
+            writer.tag(10, WireType.Varint).uint64(message.quarantined);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.DecisionHistory
+ */
+export const DecisionHistory = new DecisionHistory$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class FrontierRun$Type extends MessageType<FrontierRun> {
+    constructor() {
+        super("permguard.data.v1.FrontierRun", [
+            { no: 1, name: "origin", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "run", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "covered_through", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 4, name: "low_watermark", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 5, name: "gaps", kind: "message", repeat: 1 /*RepeatType.PACKED*/, T: () => FrontierGap }
+        ]);
+    }
+    create(value?: PartialMessage<FrontierRun>): FrontierRun {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.origin = "";
+        message.run = "";
+        message.coveredThrough = 0n;
+        message.lowWatermark = 0n;
+        message.gaps = [];
+        if (value !== undefined)
+            reflectionMergePartial<FrontierRun>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: FrontierRun): FrontierRun {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string origin */ 1:
+                    message.origin = reader.string();
+                    break;
+                case /* string run */ 2:
+                    message.run = reader.string();
+                    break;
+                case /* uint64 covered_through */ 3:
+                    message.coveredThrough = reader.uint64().toBigInt();
+                    break;
+                case /* uint64 low_watermark */ 4:
+                    message.lowWatermark = reader.uint64().toBigInt();
+                    break;
+                case /* repeated permguard.data.v1.FrontierGap gaps */ 5:
+                    message.gaps.push(FrontierGap.internalBinaryRead(reader, reader.uint32(), options));
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: FrontierRun, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string origin = 1; */
+        if (message.origin !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.origin);
+        /* string run = 2; */
+        if (message.run !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.run);
+        /* uint64 covered_through = 3; */
+        if (message.coveredThrough !== 0n)
+            writer.tag(3, WireType.Varint).uint64(message.coveredThrough);
+        /* uint64 low_watermark = 4; */
+        if (message.lowWatermark !== 0n)
+            writer.tag(4, WireType.Varint).uint64(message.lowWatermark);
+        /* repeated permguard.data.v1.FrontierGap gaps = 5; */
+        for (let i = 0; i < message.gaps.length; i++)
+            FrontierGap.internalBinaryWrite(message.gaps[i], writer.tag(5, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.FrontierRun
+ */
+export const FrontierRun = new FrontierRun$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class FrontierGap$Type extends MessageType<FrontierGap> {
+    constructor() {
+        super("permguard.data.v1.FrontierGap", [
+            { no: 1, name: "from", kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ },
+            { no: 2, name: "through", kind: "scalar", opt: true, T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ }
+        ]);
+    }
+    create(value?: PartialMessage<FrontierGap>): FrontierGap {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.from = 0n;
+        if (value !== undefined)
+            reflectionMergePartial<FrontierGap>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: FrontierGap): FrontierGap {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* uint64 from */ 1:
+                    message.from = reader.uint64().toBigInt();
+                    break;
+                case /* optional uint64 through */ 2:
+                    message.through = reader.uint64().toBigInt();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: FrontierGap, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* uint64 from = 1; */
+        if (message.from !== 0n)
+            writer.tag(1, WireType.Varint).uint64(message.from);
+        /* optional uint64 through = 2; */
+        if (message.through !== undefined)
+            writer.tag(2, WireType.Varint).uint64(message.through);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.FrontierGap
+ */
+export const FrontierGap = new FrontierGap$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class GetTemporalConfigurationRequest$Type extends MessageType<GetTemporalConfigurationRequest> {
+    constructor() {
+        super("permguard.data.v1.GetTemporalConfigurationRequest", []);
+    }
+    create(value?: PartialMessage<GetTemporalConfigurationRequest>): GetTemporalConfigurationRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<GetTemporalConfigurationRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetTemporalConfigurationRequest): GetTemporalConfigurationRequest {
+        return target ?? this.create();
+    }
+    internalBinaryWrite(message: GetTemporalConfigurationRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.GetTemporalConfigurationRequest
+ */
+export const GetTemporalConfigurationRequest = new GetTemporalConfigurationRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class TemporalEndpoints$Type extends MessageType<TemporalEndpoints> {
+    constructor() {
+        super("permguard.data.v1.TemporalEndpoints", [
+            { no: 1, name: "submission", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+        ]);
+    }
+    create(value?: PartialMessage<TemporalEndpoints>): TemporalEndpoints {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.submission = "";
+        if (value !== undefined)
+            reflectionMergePartial<TemporalEndpoints>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: TemporalEndpoints): TemporalEndpoints {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string submission */ 1:
+                    message.submission = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: TemporalEndpoints, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string submission = 1; */
+        if (message.submission !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.submission);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.TemporalEndpoints
+ */
+export const TemporalEndpoints = new TemporalEndpoints$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class GetTemporalConfigurationResponse$Type extends MessageType<GetTemporalConfigurationResponse> {
+    constructor() {
+        super("permguard.data.v1.GetTemporalConfigurationResponse", [
+            { no: 1, name: "interface", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "pdp", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 3, name: "endpoints", kind: "message", T: () => TemporalEndpoints },
+            { no: 4, name: "event_types", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 5, name: "capabilities", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
+            { no: 6, name: "store_scope", kind: "message", T: () => StoreScope },
+            { no: 7, name: "version", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 8, name: "component", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 9, name: "state", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 10, name: "stage", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 11, name: "sunset", kind: "scalar", opt: true, T: 9 /*ScalarType.STRING*/ },
+            { no: 12, name: "limits", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 4 /*ScalarType.UINT64*/, L: 0 /*LongType.BIGINT*/ } }
+        ]);
+    }
+    create(value?: PartialMessage<GetTemporalConfigurationResponse>): GetTemporalConfigurationResponse {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.interface = "";
+        message.pdp = "";
+        message.eventTypes = [];
+        message.capabilities = [];
+        message.version = "";
+        message.component = "";
+        message.state = "";
+        message.stage = "";
+        message.limits = {};
+        if (value !== undefined)
+            reflectionMergePartial<GetTemporalConfigurationResponse>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetTemporalConfigurationResponse): GetTemporalConfigurationResponse {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string interface */ 1:
+                    message.interface = reader.string();
+                    break;
+                case /* string pdp */ 2:
+                    message.pdp = reader.string();
+                    break;
+                case /* permguard.data.v1.TemporalEndpoints endpoints */ 3:
+                    message.endpoints = TemporalEndpoints.internalBinaryRead(reader, reader.uint32(), options, message.endpoints);
+                    break;
+                case /* repeated string event_types */ 4:
+                    message.eventTypes.push(reader.string());
+                    break;
+                case /* repeated string capabilities */ 5:
+                    message.capabilities.push(reader.string());
+                    break;
+                case /* permguard.data.v1.StoreScope store_scope */ 6:
+                    message.storeScope = StoreScope.internalBinaryRead(reader, reader.uint32(), options, message.storeScope);
+                    break;
+                case /* string version */ 7:
+                    message.version = reader.string();
+                    break;
+                case /* string component */ 8:
+                    message.component = reader.string();
+                    break;
+                case /* string state */ 9:
+                    message.state = reader.string();
+                    break;
+                case /* string stage */ 10:
+                    message.stage = reader.string();
+                    break;
+                case /* optional string sunset */ 11:
+                    message.sunset = reader.string();
+                    break;
+                case /* map<string, uint64> limits */ 12:
+                    this.binaryReadMap12(message.limits, reader, options);
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    private binaryReadMap12(map: GetTemporalConfigurationResponse["limits"], reader: IBinaryReader, options: BinaryReadOptions): void {
+        let len = reader.uint32(), end = reader.pos + len, key: keyof GetTemporalConfigurationResponse["limits"] | undefined, val: GetTemporalConfigurationResponse["limits"][any] | undefined;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case 1:
+                    key = reader.string();
+                    break;
+                case 2:
+                    val = reader.uint64().toBigInt();
+                    break;
+                default: throw new globalThis.Error("unknown map entry field for field permguard.data.v1.GetTemporalConfigurationResponse.limits");
+            }
+        }
+        map[key ?? ""] = val ?? 0n;
+    }
+    internalBinaryWrite(message: GetTemporalConfigurationResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string interface = 1; */
+        if (message.interface !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.interface);
+        /* string pdp = 2; */
+        if (message.pdp !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.pdp);
+        /* permguard.data.v1.TemporalEndpoints endpoints = 3; */
+        if (message.endpoints)
+            TemporalEndpoints.internalBinaryWrite(message.endpoints, writer.tag(3, WireType.LengthDelimited).fork(), options).join();
+        /* repeated string event_types = 4; */
+        for (let i = 0; i < message.eventTypes.length; i++)
+            writer.tag(4, WireType.LengthDelimited).string(message.eventTypes[i]);
+        /* repeated string capabilities = 5; */
+        for (let i = 0; i < message.capabilities.length; i++)
+            writer.tag(5, WireType.LengthDelimited).string(message.capabilities[i]);
+        /* permguard.data.v1.StoreScope store_scope = 6; */
+        if (message.storeScope)
+            StoreScope.internalBinaryWrite(message.storeScope, writer.tag(6, WireType.LengthDelimited).fork(), options).join();
+        /* string version = 7; */
+        if (message.version !== "")
+            writer.tag(7, WireType.LengthDelimited).string(message.version);
+        /* string component = 8; */
+        if (message.component !== "")
+            writer.tag(8, WireType.LengthDelimited).string(message.component);
+        /* string state = 9; */
+        if (message.state !== "")
+            writer.tag(9, WireType.LengthDelimited).string(message.state);
+        /* string stage = 10; */
+        if (message.stage !== "")
+            writer.tag(10, WireType.LengthDelimited).string(message.stage);
+        /* optional string sunset = 11; */
+        if (message.sunset !== undefined)
+            writer.tag(11, WireType.LengthDelimited).string(message.sunset);
+        /* map<string, uint64> limits = 12; */
+        for (let k of globalThis.Object.keys(message.limits))
+            writer.tag(12, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k).tag(2, WireType.Varint).uint64(message.limits[k]).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message permguard.data.v1.GetTemporalConfigurationResponse
+ */
+export const GetTemporalConfigurationResponse = new GetTemporalConfigurationResponse$Type();
 /**
  * @generated ServiceType for protobuf service permguard.data.v1.PolicyDecisionPoint
  */
@@ -1287,4 +3475,12 @@ export const PolicyDecisionPoint = new ServiceType("permguard.data.v1.PolicyDeci
     { name: "Evaluate", options: {}, I: EvaluateRequest, O: EvaluateResponse },
     { name: "EvaluateMany", options: {}, I: EvaluateRequest, O: EvaluateResponse },
     { name: "GetConfiguration", options: {}, I: GetConfigurationRequest, O: GetConfigurationResponse }
+]);
+/**
+ * @generated ServiceType for protobuf service permguard.data.v1.TemporalPolicyDecisionPoint
+ */
+export const TemporalPolicyDecisionPoint = new ServiceType("permguard.data.v1.TemporalPolicyDecisionPoint", [
+    { name: "SubmitEvent", options: {}, I: SubmitEventRequest, O: SubmitEventResponse },
+    { name: "GetTemporalConfiguration", options: {}, I: GetTemporalConfigurationRequest, O: GetTemporalConfigurationResponse },
+    { name: "GetSigners", options: {}, I: GetTemporalSignersRequest, O: GetTemporalSignersResponse }
 ]);
