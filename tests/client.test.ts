@@ -13,6 +13,7 @@ import {
 } from "@grpc/grpc-js";
 import assert from "node:assert/strict";
 import * as http from "node:http";
+import * as net from "node:net";
 import test from "node:test";
 import {
   Client,
@@ -394,7 +395,14 @@ test("an HTTP timeout bounds the whole call (BUG-0309)", async () => {
     const client = new Client(`http://127.0.0.1:${port}`, { timeoutMs: 500 });
     const started = Date.now();
     try {
-      await assert.rejects(client.evaluate(sample), /timed out after 500ms/);
+      // A refusal, as over gRPC and in every Permguard SDK (BUG-0284).
+      await assert.rejects(
+        client.evaluate(sample),
+        (error: unknown) =>
+          error instanceof Refusal &&
+          error.errorClass === Refusal.UNAVAILABLE &&
+          error.code === Refusal.TIMEOUT,
+      );
       const elapsed = Date.now() - started;
       assert.ok(elapsed < 2000, `${mode}: rejected after ${elapsed}ms`);
     } finally {
@@ -542,3 +550,59 @@ function closeGrpc(server: GrpcServer): Promise<void> {
     server.tryShutdown((error) => (error ? reject(error) : resolve()));
   });
 }
+
+test("a timeout and an unreachable plane are the same refusal on both transports (BUG-0284)", async () => {
+  // A listener that accepts and never answers: what a hung data plane is to a client.
+  const held: net.Socket[] = [];
+  const silent = net.createServer((socket) => {
+    held.push(socket);
+  });
+  await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+  const port = (silent.address() as net.AddressInfo).port;
+  const closed = net.createServer();
+  await new Promise<void>((resolve) => closed.listen(0, "127.0.0.1", resolve));
+  const gone = (closed.address() as net.AddressInfo).port;
+  await new Promise<void>((resolve) => closed.close(() => resolve()));
+  const sample: EvaluateRequest = { zone: "z", ledger: "l" };
+  try {
+    for (const scheme of ["http", "grpc"]) {
+      for (const [where, code] of [
+        [port, Refusal.TIMEOUT],
+        [gone, Refusal.UNREACHABLE],
+      ] as const) {
+        const client = new Client(`${scheme}://127.0.0.1:${where}`, { timeoutMs: 500 });
+        try {
+          await assert.rejects(
+            client.evaluate(sample),
+            (error: unknown) =>
+              error instanceof Refusal &&
+              error.errorClass === Refusal.UNAVAILABLE &&
+              error.code === code,
+            `${scheme} ${code}`,
+          );
+        } finally {
+          client.close();
+        }
+      }
+    }
+  } finally {
+    for (const socket of held) socket.destroy();
+    await new Promise<void>((resolve) => silent.close(() => resolve()));
+  }
+});
+
+test("a context that is not a JSON object is the same refusal on both transports (BUG-0307)", () => {
+  for (const context of [[1, 2], "text", 7, null]) {
+    const request = { zone: "z", ledger: "l", context } as unknown as EvaluateRequest;
+    for (const map of [requestToJson, requestToProto]) {
+      assert.throws(
+        () => map(request),
+        (error: unknown) =>
+          error instanceof Refusal &&
+          error.errorClass === "validation" &&
+          error.code === "payload_malformed",
+        `${JSON.stringify(context)}`,
+      );
+    }
+  }
+});

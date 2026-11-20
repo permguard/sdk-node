@@ -127,9 +127,25 @@ function mapError(error: unknown, signal?: AbortSignal): Error {
   if (!(error instanceof RpcError)) {
     return error instanceof Error ? error : new Error(String(error));
   }
+  const errorClass = first(error.meta[ERROR_CLASS]);
+  const code = first(error.meta[ERROR_CODE]);
+  // A status the data plane did not name is the transport's: a deadline that passed or a plane
+  // never reached, said as over HTTP and in every Permguard SDK (BUG-0284).
+  if (!errorClass && !code) {
+    if (error.code === "DEADLINE_EXCEEDED") {
+      return new Refusal(Refusal.UNAVAILABLE, Refusal.TIMEOUT, error.message, {
+        grpcCode: error.code,
+      });
+    }
+    if (error.code === "UNAVAILABLE") {
+      return new Refusal(Refusal.UNAVAILABLE, Refusal.UNREACHABLE, error.message, {
+        grpcCode: error.code,
+      });
+    }
+  }
   return new Refusal(
-    first(error.meta[ERROR_CLASS]) || grpcClass(error.code),
-    first(error.meta[ERROR_CODE]) || error.code.toLowerCase(),
+    errorClass || grpcClass(error.code),
+    code || error.code.toLowerCase(),
     error.message,
     { grpcCode: error.code },
   );

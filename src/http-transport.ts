@@ -153,17 +153,57 @@ export class HttpTransport implements Transport {
       );
       // The timeout bounds the whole call, not the time between bytes: a server trickling its
       // answer never keeps it pending past it (BUG-0309).
+      // A call that fails in the client is a refusal too, the same as over gRPC and in every
+      // Permguard SDK: `unavailable/timeout`, `unavailable/unreachable` (BUG-0284). The caller's
+      // own abort stays an `AbortError`.
+      let timedOut = false;
       const deadline = setTimeout(() => {
+        timedOut = true;
+        // With an error, so the request settles even when the answer had already begun.
         request.destroy(new Error(`Permguard request timed out after ${options.timeoutMs}ms`));
       }, options.timeoutMs);
       deadline.unref();
       request.on("error", (error) => {
         clearTimeout(deadline);
-        reject(error);
+        if (options.signal?.aborted) {
+          reject(error);
+        } else if (timedOut) {
+          reject(
+            new Refusal(
+              Refusal.UNAVAILABLE,
+              Refusal.TIMEOUT,
+              `the data plane did not answer within ${options.timeoutMs}ms`,
+            ),
+          );
+        } else if (unreachable(error)) {
+          reject(
+            new Refusal(
+              Refusal.UNAVAILABLE,
+              Refusal.UNREACHABLE,
+              `the data plane could not be reached: ${error.message}`,
+            ),
+          );
+        } else {
+          reject(error);
+        }
       });
       request.end(body);
     });
   }
+}
+
+/// Whether a socket error says the data plane was not reached at all.
+function unreachable(error: Error): boolean {
+  const code = (error as NodeJS.ErrnoException).code ?? "";
+  return [
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "EHOSTUNREACH",
+    "ENETUNREACH",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "EPIPE",
+  ].includes(code);
 }
 
 function refusal(status: number, value: unknown, raw: string): Refusal {

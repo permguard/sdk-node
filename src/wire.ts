@@ -393,19 +393,29 @@ function validateRequest(request: EvaluateRequest): void {
   const present = (value: unknown): void => {
     if (value !== undefined) validateJson(value);
   };
-  present(request.context);
-  present(request.subject?.properties);
-  present(request.resource?.properties);
-  present(request.action?.properties);
-  present(request.principal?.properties);
+  // A context or properties member is a JSON object: anything else, an array included, is refused
+  // as the data plane refuses it over HTTP, the same over gRPC, whose Struct cannot carry it
+  // (BUG-0307).
+  const object = (value: unknown, name: string): void => {
+    if (value === undefined) return;
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw malformed(`\`${name}\` is a JSON object`);
+    }
+    validateJson(value);
+  };
+  object(request.context, "context");
+  object(request.subject?.properties, "subject.properties");
+  object(request.resource?.properties, "resource.properties");
+  object(request.action?.properties, "action.properties");
+  object(request.principal?.properties, "principal.properties");
   for (const input of Object.values(request.partitionInputs ?? {})) {
     present(input.data);
   }
   for (const evaluation of request.evaluations ?? []) {
-    present(evaluation.context);
-    present(evaluation.subject?.properties);
-    present(evaluation.resource?.properties);
-    present(evaluation.action?.properties);
+    object(evaluation.context, "evaluations[].context");
+    object(evaluation.subject?.properties, "evaluations[].subject.properties");
+    object(evaluation.resource?.properties, "evaluations[].resource.properties");
+    object(evaluation.action?.properties, "evaluations[].action.properties");
     for (const input of Object.values(evaluation.partitionInputs ?? {})) {
       present(input.data);
     }

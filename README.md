@@ -88,7 +88,7 @@ A ledger whose manifest declares other profiles is asked with the profile's name
 | `subject`         | who asks: a type and an id, with optional properties                    |
 | `resource`        | what is acted on: a type and an id, with optional properties            |
 | `action`          | what is done: a name, with optional properties                          |
-| `context`         | any other fact the policies read                                        |
+| `context`         | any other fact the policies read, as a JSON object                      |
 | `partitionInputs` | runtime data for the partitions of the profile, see below               |
 | `requestId`       | your id for the call, given back in the answer                          |
 | `requestNonce`    | asks for a signed response, see below                                   |
@@ -97,6 +97,8 @@ A ledger whose manifest declares other profiles is asked with the profile's name
 
 A deny is not an error: it is a successful response with `decision === false`.
 Validation, authorization, availability and server failures reject with `Refusal`, with their stable `errorClass` and `code`.
+A data plane that does not answer in time rejects with class `unavailable` and code `timeout`, one that cannot be reached with class `unavailable` and code `unreachable`, the same on HTTP and gRPC.
+A `context` or properties that are not a JSON object reject before the call with class `validation` and code `payload_malformed`.
 
 Each decision's `context.evidence` says how the plane recorded it: its `mode`, its `status` and, once recorded, its `recordId` and `position`.
 A request that sets `requestNonce` (base64url without padding, 16 to 64 bytes) asks for a signed response, and the answer carries the plane's `attestation`: the plane signs only for an authenticated caller, and refuses with `unauthenticated` rather than answer unsigned.
